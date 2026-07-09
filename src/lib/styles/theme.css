@@ -1,0 +1,194 @@
+/* LlamaLauncher — тема «Carbon & Amber»: угольно-чёрный фон, янтарно-медный акцент.
+   Строгий вид профессионального инструмента (Linear × терминал), тонкие границы,
+   моноширинные данные. Единый источник дизайн-токенов для всех компонентов. */
+
+:root {
+  /* ── Фон: угольные слои, тёплый нейтральный (не сине-чёрный) ─────────────── */
+  --bg-0: #0b0b0d;
+  --bg-1: #101013;
+  --bg-2: #16161a;
+  --bg-3: #1c1c21;
+
+  /* Поверхности — тёплый серый оверлей поверх угля (не «стеклянный пузырь»). */
+  --surface: rgba(255, 250, 244, 0.035);
+  --surface-hover: rgba(255, 250, 244, 0.06);
+  --surface-active: rgba(255, 250, 244, 0.09);
+  --border: rgba(255, 244, 230, 0.09);
+  --border-strong: rgba(255, 224, 190, 0.2);
+
+  /* ── Текст: тёплый белый → приглушённый камень ──────────────────────────── */
+  --text-0: #ededec;
+  --text-1: #a5a29c;
+  --text-2: #6f6c66;
+
+  /* ── Акцент: янтарь / расплавленная медь ────────────────────────────────── */
+  --accent: #ff9a3d;
+  --accent-hover: #ffab5c;
+  --accent-press: #f0851f;
+  --accent-ink: #1a0f02; /* тёмный текст поверх акцентной заливки */
+  --accent-soft: rgba(255, 154, 61, 0.13);
+  --accent-line: rgba(255, 154, 61, 0.4);
+  --accent-glow: rgba(255, 138, 40, 0.28);
+
+  /* ── Статусы (сдвинуты в тёплую сторону под палитру) ────────────────────── */
+  --ok: #4bd07f;
+  --ok-glow: rgba(75, 208, 127, 0.2);
+  --warn: #ffc247;
+  --danger: #ff6b5e;
+  --danger-soft: rgba(255, 107, 94, 0.12);
+  --danger-line: rgba(255, 107, 94, 0.32);
+
+  /* ── Типографика ─────────────────────────────────────────────────────────
+     display — акцентные заголовки/бренд (латиница Space Grotesk, кириллица → Inter);
+     sans — тело; mono — цифры/параметры/пути/логи. */
+  --font-display: "Space Grotesk", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
+
+  /* ── Форма: чуть строже (меньше скругления), глубже тени ─────────────────── */
+  --radius-s: 6px;
+  --radius-m: 9px;
+  --radius-l: 13px;
+
+  --shadow-soft: 0 2px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lift: 0 12px 40px rgba(0, 0, 0, 0.6);
+
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  color: var(--text-0);
+  /* Угольный фон с едва заметной тёплой подсветкой сверху — без пятен-градиентов. */
+  background:
+    radial-gradient(1100px 620px at 50% -18%, rgba(255, 138, 40, 0.07), transparent 62%),
+    var(--bg-0);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  font-feature-settings: "cv05", "ss01";
+}
+
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* Моноширинные табличные данные — единый хелпер. */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.02em;
+}
+
+/* ── Утилитарные классы ─────────────────────────────────────────────────── */
+
+.glass {
+  background: linear-gradient(180deg, var(--surface-hover), var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-soft);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-m);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 13.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.06s ease, box-shadow 0.15s ease;
+}
+.btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  border: 1px solid var(--accent-press);
+  color: var(--accent-ink);
+  font-weight: 600;
+  box-shadow: 0 3px 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #ffbb74, var(--accent-hover));
+  border-color: var(--accent);
+  box-shadow: 0 5px 22px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.input {
+  width: 100%;
+  padding: 9px 13px;
+  border-radius: var(--radius-m);
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--border);
+  color: var(--text-0);
+  font-size: 13.5px;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.input::placeholder { color: var(--text-2); }
+.input:focus {
+  border-color: var(--accent-line);
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Тонкий скроллбар — тёплый нейтральный. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 240, 224, 0.1);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 190, 130, 0.24);
+  background-clip: padding-box;
+}
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-0);
+}

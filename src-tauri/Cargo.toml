@@ -1,0 +1,38 @@
+[package]
+name = "llama-launcher"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "llama_launcher_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Каталог Hugging Face (Фаза 4): HTTP-поиск + стриминг-скачивание GGUF.
+# default-tls на Windows = schannel (без OpenSSL); json — для разбора API-ответов.
+reqwest = { version = "0.12", features = ["json"] }
+
+# Детект железа (Фаза 3): VRAM через DXGI, RAM через GlobalMemoryStatusEx.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dxgi",
+    "Win32_System_SystemInformation",
+] }
+
