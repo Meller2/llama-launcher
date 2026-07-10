@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { loadSettings, type Settings } from "$lib/api";
+  import { loadSettings, needsSetup, type Settings } from "$lib/api";
   import { serverState } from "$lib/server.svelte";
   import { prefs } from "$lib/prefs.svelte";
   import Onboarding from "$lib/components/Onboarding.svelte";
@@ -34,6 +34,8 @@
     tab = "running";
   }
 
+  const showSetup = $derived(settings !== null && needsSetup(settings));
+
   const tabs = $derived([
     { id: "models" as const, label: prefs.t("app.tab.models"), icon: "▤" },
     { id: "catalog" as const, label: prefs.t("app.tab.catalog"), icon: "⌕" },
@@ -46,7 +48,7 @@
   <div class="boot">
     <img class="logo-mark boot-mark" src="/logo1.png" alt="LlamaLauncher" />
   </div>
-{:else if settings && !settings.onboarded}
+{:else if settings && showSetup}
   <Onboarding {settings} oncomplete={onOnboarded} />
 {:else if settings}
   <div class="shell">

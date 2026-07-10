@@ -1,0 +1,58 @@
+{
+  "name": "App",
+  "description": "Open/start/launch applications and manage windows. Keywords: open, start, launch, program, application, window, foreground, focus, resize. Three modes: 'launch' (opens the prescribed application), 'resize' (adjusts the size/position of a named window or the active window if name is omitted), 'switch' (brings specific window into focus).",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "mode": {
+        "default": "launch",
+        "enum": [
+          "launch",
+          "resize",
+          "switch"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "window_loc": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "window_size": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "type": "object"
+  }
+}

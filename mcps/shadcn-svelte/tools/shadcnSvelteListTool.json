@@ -1,0 +1,27 @@
+{
+  "name": "shadcnSvelteListTool",
+  "description": "List all available shadcn-svelte components, blocks, charts, documentation sections, and Bits UI primitives by discovering them from the live websites",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "type": {
+        "description": "What to list: components, blocks, charts, docs, bits-ui, or all",
+        "default": "all",
+        "type": "string",
+        "enum": [
+          "components",
+          "blocks",
+          "charts",
+          "docs",
+          "bits-ui",
+          "all"
+        ]
+      }
+    },
+    "required": [
+      "type"
+    ],
+    "additionalProperties": false
+  }
+}

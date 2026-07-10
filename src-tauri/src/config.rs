@@ -41,6 +41,10 @@ impl Default for LaunchDefaults {
     }
 }
 
+/// Версия wizard'а первоначальной настройки.
+/// Старые settings.json без поля → 0 → wizard покажется снова (даже если onboarded=true).
+pub const SETUP_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -50,8 +54,10 @@ pub struct Settings {
     pub model_folders: Vec<String>,
     /// Дефолты запуска.
     pub defaults: LaunchDefaults,
-    /// Пройден ли онбординг.
+    /// Пройден ли онбординг (legacy-флаг; смотри ещё setup_version).
     pub onboarded: bool,
+    /// Какую версию wizard'а пользователь завершил. 0 = ещё не проходил актуальный.
+    pub setup_version: u32,
     /// Runtime поставлен лаунчером (portable, рядом с exe).
     pub runtime_managed: bool,
     /// Тег релиза llama.cpp, напр. "b9952".
@@ -80,6 +86,7 @@ impl Default for Settings {
             model_folders: Vec::new(),
             defaults: LaunchDefaults::default(),
             onboarded: false,
+            setup_version: 0,
             runtime_managed: false,
             runtime_tag: None,
             runtime_backend: None,
@@ -151,4 +158,10 @@ pub fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
 #[tauri::command]
 pub fn validate_llama_dir(dir: String) -> bool {
     validate_llama_dir_impl(&dir)
+}
+
+/// Актуальная версия wizard'а (для фронта).
+#[tauri::command]
+pub fn setup_version() -> u32 {
+    SETUP_VERSION
 }

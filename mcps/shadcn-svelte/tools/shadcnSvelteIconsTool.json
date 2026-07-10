@@ -1,0 +1,46 @@
+{
+  "name": "shadcnSvelteIconsTool",
+  "description": "Search and browse Lucide icons available for use with lucide-svelte. Browse all 1600+ Lucide icons with search by name and tags. No AI hallucination - returns only real icons that exist. IMPORTANT: ONLY use this tool for Lucide icons - do NOT use for shadcn-svelte component information. For components, use shadcn-svelte-get, shadcn-svelte-search, or shadcn-svelte-list instead. Can handle multiple icon names: pass comma-separated names like 'truck, package, dashboard' or space-separated names like 'truck package dashboard' in the query parameter.",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "query": {
+        "description": "Search term to filter icons (searches icon names and tags), or multiple icon names separated by commas or spaces (e.g., 'truck, package, dashboard' or 'truck package dashboard')",
+        "type": "string"
+      },
+      "names": {
+        "description": "Specific icon names to return (e.g., ['arrow-left', 'user'])",
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "importLimit": {
+        "description": "Maximum number of icon imports to show in the snippet (default: 10). This prevents long import lines but can be increased if needed.",
+        "default": 10,
+        "type": "number"
+      },
+      "limit": {
+        "description": "Maximum number of icons to return (default: 50)",
+        "default": 100,
+        "type": "number"
+      },
+      "packageManager": {
+        "description": "Optional package manager for install commands. If omitted, the tool will use a recommended default (npx/PNPM/Yarn/bun as appropriate).",
+        "type": "string",
+        "enum": [
+          "npm",
+          "yarn",
+          "pnpm",
+          "bun"
+        ]
+      }
+    },
+    "required": [
+      "importLimit",
+      "limit"
+    ],
+    "additionalProperties": false
+  }
+}

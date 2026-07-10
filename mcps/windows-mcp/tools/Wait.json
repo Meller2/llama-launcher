@@ -1,0 +1,16 @@
+{
+  "name": "Wait",
+  "description": "Pauses execution for specified duration in seconds. Use when waiting for: applications to launch/load, UI animations to complete, page content to render, dialogs to appear, or between rapid actions. Helps ensure UI is ready before next interaction.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "duration": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "duration"
+    ],
+    "type": "object"
+  }
+}

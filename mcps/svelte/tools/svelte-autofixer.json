@@ -1,0 +1,36 @@
+{
+  "name": "svelte-autofixer",
+  "description": "Given a svelte component or module returns a list of suggestions to fix any issues it has. This tool MUST be used whenever the user is asking to write svelte code before sending the code back to the user",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "desired_svelte_version": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "description": "The desired major svelte version as an integer (must be 4 or 5)...if possible read this from the package.json of the user project, otherwise use some hint from the wording (if the user asks for runes it wants version 5). Default to 5 in case of doubt."
+      },
+      "async": {
+        "type": "boolean",
+        "description": "If true the code is an async component/module and might use await in the markup or top-level awaits in the script tag. If possible check the svelte.config.js/svelte.config.ts to check if the option is enabled otherwise asks the user if they prefer using it or not. You can only use this option if the version is 5."
+      },
+      "filename": {
+        "type": "string",
+        "description": "The filename of the component if available, it MUST be only the Component name with .svelte or .svelte.ts extension and not the entire path."
+      }
+    },
+    "required": [
+      "code",
+      "desired_svelte_version"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

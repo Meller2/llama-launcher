@@ -19,6 +19,11 @@ export interface Settings {
   model_folders: string[];
   defaults: LaunchDefaults;
   onboarded: boolean;
+  /**
+   * Версия завершённого wizard'а. 0 / отсутствует = показать setup снова
+   * (даже если onboarded=true от старой версии приложения).
+   */
+  setup_version: number;
   /** Runtime поставлен лаунчером (portable). */
   runtime_managed: boolean;
   runtime_tag: string | null;
@@ -30,6 +35,14 @@ export interface Settings {
   expertise: string;
   /** Открывать Web-UI при server-ready. */
   open_ui_on_ready: boolean;
+}
+
+/** Актуальная версия wizard'а — должна совпадать с config::SETUP_VERSION в Rust. */
+export const CURRENT_SETUP_VERSION = 1;
+
+/** Нужен ли экран первоначальной настройки. */
+export function needsSetup(s: Settings): boolean {
+  return !s.onboarded || (s.setup_version ?? 0) < CURRENT_SETUP_VERSION;
 }
 
 export interface ModelInfo {

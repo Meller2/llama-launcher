@@ -31,6 +31,7 @@ pub fn run() {
             config::load_settings,
             config::save_settings,
             config::validate_llama_dir,
+            config::setup_version,
             models::scan_models,
             models::read_gguf_meta,
             server::start_server,

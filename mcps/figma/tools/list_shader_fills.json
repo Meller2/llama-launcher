@@ -1,0 +1,15 @@
+{
+  "name": "list_shader_fills",
+  "description": "Lists the shader fills in the authenticated user's account library. Returns each fill's id, name, and description (plus a nextCursor when more pages exist). Use the id with get_shader_fill to read a fill's source. Shader fills generate pixels directly with no input raster, distinct from custom tools and shader effects.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "cursor": {
+        "type": "string",
+        "description": "Pagination cursor returned as nextCursor by a previous call. Omit to fetch the first page."
+      }
+    },
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

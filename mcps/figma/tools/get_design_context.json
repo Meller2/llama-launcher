@@ -1,0 +1,50 @@
+{
+  "name": "get_design_context",
+  "description": "Get design context for a Figma node — the primary tool for design-to-code workflows. Returns reference code, a screenshot, and contextual metadata that should be adapted to the target project. See the server instructions for how to interpret and adapt the response. \n\nUse the nodeId parameter to specify a node id. Use the fileKey parameter to specify the file key. If a URL is provided, extract the node id and file key from the URL, for example, if given the URL https://figma.com/design/:fileKey/:fileName?node-id=1-2, the extracted nodeId would be `1:2` and the fileKey would be `:fileKey`. If the URL does not include `node-id`, ask the user for a node-specific URL. Do not pass an empty or guessed nodeId. If the URL is of the format https://figma.com/design/:fileKey/branch/:branchKey/:fileName then use the branchKey as the fileKey. If the URL is of the format https://figma.com/make/:makeFileKey/:makeFileName then use the makeFileKey to identify the Figma Make file. Only for Figma Make files (URLs containing `/make/`), and only when calling get_design_context, assume the nodeId is `0:1`. The response will contain a code string and a JSON of download URLs for the assets referenced in the code. It will also include a screenshot of the node for context by default.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "nodeId": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^\\d+[:-]\\d+$",
+        "description": "The ID of the node in the Figma document, eg. \"123:456\" or \"123-456\". This should be a valid node ID in the Figma document. Do not pass an empty string for node_id."
+      },
+      "fileKey": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The key of the Figma file to use. If the URL is provided, extract the file key from the URL. The given URL must be in the format https://figma.com/design/:fileKey/:fileName?node-id=:int1-:int2. The extracted fileKey would be `:fileKey`."
+      },
+      "clientLanguages": {
+        "type": "string",
+        "description": "A comma separated list of programming languages used by the client in the current context in string form, e.g. `javascript`, `html,css,typescript`, etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which languages are being used. If you are unsure, it is better to list `unknown` than to make a guess."
+      },
+      "clientFrameworks": {
+        "type": "string",
+        "description": "A comma separated list of frameworks used by the client in the current context, e.g. `react`, `vue`, `django` etc. If you do not know, please list `unknown`. This is used for logging purposes to understand which frameworks are being used. If you are unsure, it is better to list `unknown` than to make a guess"
+      },
+      "forceCode": {
+        "type": "boolean",
+        "description": "Whether code should always be returned, instead of returning just metadata if the output size is too large. Only set this when the user directly requests to force the code. "
+      },
+      "disableCodeConnect": {
+        "type": "boolean",
+        "description": "Whether Code Connect should be used to get the design context. Only set this when the user directly requests to disable Code Connect."
+      },
+      "skillNames": {
+        "type": "string",
+        "description": "A comma-separated list of Figma skill names being followed, if any (e.g. \"figma-design-to-code\", \"figma-design-to-code,figma-code-connect\"). Only pass this when explicitly instructed to by skill documentation. Used for logging purposes. If the skill was loaded via a skill-content MCP resource, prefix the skill name with \"resource:\". (e.g. \"resource:figma-design-to-code\", \"resource:figma-design-to-code,resource:figma-code-connect\")"
+      },
+      "excludeScreenshot": {
+        "type": "boolean",
+        "description": "Whether to exclude the screenshot of the design from the response. IMPORTANT: it is not recommended to exclude screenshots. Only set this to true if the user has explicitly requested it or you are trying to preserve context."
+      }
+    },
+    "required": [
+      "nodeId",
+      "fileKey"
+    ],
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  }
+}

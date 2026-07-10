@@ -1,0 +1,51 @@
+{
+  "name": "Click",
+  "description": "Performs mouse clicks at specified coordinates [x, y] or passing a UI element's label/id. Supports button types: 'left' for selection/activation, 'right' for context menus, 'middle'. Supports clicks: 0=hover only (no click), 1=single click (select/focus), 2=double click (open/activate). Provide either loc or label.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "loc": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "label": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "button": {
+        "default": "left",
+        "enum": [
+          "left",
+          "right",
+          "middle"
+        ],
+        "type": "string"
+      },
+      "clicks": {
+        "default": 1,
+        "type": "integer"
+      }
+    },
+    "type": "object"
+  }
+}
