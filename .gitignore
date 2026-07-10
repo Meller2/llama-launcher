@@ -22,3 +22,7 @@ vite.config.ts.timestamp-*
 /src-tauri/target/debug/models
 /src-tauri/target/release/runtime
 /src-tauri/target/release/models
+
+# Local MCP tool schemas (not part of the app)
+/mcps/
+
