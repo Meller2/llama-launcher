@@ -16,7 +16,10 @@
       | "close"
       | "refresh"
       | "play"
-      | "search";
+      | "search"
+      | "stop"
+      | "external"
+      | "copy";
     size?: number;
     stroke?: number;
   } = $props();
@@ -65,6 +68,15 @@
   {:else if name === "search"}
     <circle cx="11" cy="11" r="6.5" />
     <path d="M16.2 16.2 20 20" />
+  {:else if name === "stop"}
+    <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none" />
+  {:else if name === "external"}
+    <path d="M14 5h5v5" />
+    <path d="M10 14 19 5" />
+    <path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+  {:else if name === "copy"}
+    <rect x="9" y="9" width="10" height="10" rx="1.5" />
+    <path d="M7 15H6a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 6 4h8A1.5 1.5 0 0 1 15.5 5.5V7" />
   {/if}
 </svg>
 

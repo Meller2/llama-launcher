@@ -46,6 +46,9 @@
   function goCatalog() {
     tab = "catalog";
   }
+  function goModels() {
+    tab = "models";
+  }
 
   const showSetup = $derived(settings !== null && needsSetup(settings));
 
@@ -139,7 +142,7 @@
         {:else if tab === "catalog"}
           <Catalog {settings} />
         {:else if tab === "running"}
-          <Running />
+          <Running onmodels={goModels} />
         {/if}
       </main>
     </div>
