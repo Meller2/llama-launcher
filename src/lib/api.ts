@@ -73,6 +73,8 @@ export interface LaunchConfig {
 
 export interface ServerStatus {
   running: boolean;
+  /** Backend: модель загружена (log listening /health), не только процесс жив. */
+  ready: boolean;
   port: number | null;
   model_name: string | null;
 }

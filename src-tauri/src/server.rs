@@ -2,7 +2,7 @@
 //! Флаги — маппинг из llama.bat + дефолты из config::LaunchDefaults.
 
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -13,6 +13,13 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Сколько ждать готовности сервера, прежде чем сообщить UI об ошибке.
 const READY_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Контекст: разумные границы для llama-server (не HTML-валидация).
+const CTX_MIN: u32 = 256;
+const CTX_MAX: u32 = 131_072;
+const THREADS_MIN: u32 = 1;
+const THREADS_MAX: u32 = 512;
+const NGL_MAX: u32 = 10_000;
 
 /// Конфиг запуска, приходит из UI.
 #[derive(Debug, Clone, Deserialize)]
@@ -34,6 +41,8 @@ pub struct LaunchConfig {
 #[derive(Debug, Clone, Serialize)]
 pub struct ServerStatus {
     pub running: bool,
+    /// Модель загружена и сервер слушает (не только процесс жив).
+    pub ready: bool,
     pub port: Option<u16>,
     pub model_name: Option<String>,
 }
@@ -60,11 +69,55 @@ struct RunningServer {
     model_name: String,
     /// Поколение — чтобы наблюдатель не затирал состояние более нового запуска.
     id: u64,
+    /// Готовность (log «listening» или /health). Делится с watchdog/reader.
+    ready: Arc<AtomicBool>,
 }
 
 // Windows: не открывать консольное окно у дочернего процесса.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Валидация параметров запуска на backend (HTML/UI не считается защитой).
+fn validate_launch_config(cfg: &LaunchConfig) -> Result<(), String> {
+    if cfg.llama_dir.trim().is_empty() {
+        return Err("Путь к llama-server не задан.".into());
+    }
+    if cfg.model_path.trim().is_empty() {
+        return Err("Путь к модели не задан.".into());
+    }
+    if !(CTX_MIN..=CTX_MAX).contains(&cfg.ctx) {
+        return Err(format!(
+            "Контекст (ctx) должен быть в диапазоне {CTX_MIN}…{CTX_MAX}, получено {}.",
+            cfg.ctx
+        ));
+    }
+    if !(THREADS_MIN..=THREADS_MAX).contains(&cfg.threads) {
+        return Err(format!(
+            "Потоки (threads) должны быть в диапазоне {THREADS_MIN}…{THREADS_MAX}, получено {}.",
+            cfg.threads
+        ));
+    }
+    if cfg.ngl > NGL_MAX {
+        return Err(format!(
+            "Число слоёв GPU (ngl) слишком велико (>{NGL_MAX}): {}.",
+            cfg.ngl
+        ));
+    }
+    match cfg.kv_quant.as_str() {
+        "f16" | "q8_0" | "q4_0" => {}
+        other => {
+            return Err(format!(
+                "Недопустимый KV-квант «{other}». Допустимо: f16, q8_0, q4_0."
+            ));
+        }
+    }
+    if cfg.port == 0 {
+        return Err("Порт не может быть 0.".into());
+    }
+    // Привилегированные порты на Windows обычно доступны, но <1024 часто заняты —
+    // не запрещаем, только 0 уже отсечён (u16 max ок).
+    Ok(())
+}
 
 /// Собрать аргументы llama-server из конфига (портирует build_command + llama.bat).
 fn build_args(cfg: &LaunchConfig) -> Vec<String> {
@@ -150,6 +203,34 @@ fn mark_ready(app: &AppHandle, ready: &AtomicBool, port: u16) {
     }
 }
 
+/// HTTP GET /health — надёжнее голого TCP (чужой процесс на порту ≠ llama-server).
+/// llama-server отдаёт 200, когда модель загружена; иначе 503/ошибка.
+fn http_health_ok(port: u16) -> bool {
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(400)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(400)));
+    let req = format!(
+        "GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+    );
+    if stream.write_all(req.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 256];
+    let n = match stream.read(&mut buf) {
+        Ok(n) if n > 0 => n,
+        _ => return false,
+    };
+    let head = String::from_utf8_lossy(&buf[..n]);
+    // "HTTP/1.x 200"
+    head.lines()
+        .next()
+        .map(|l| l.contains(" 200"))
+        .unwrap_or(false)
+}
+
 /// Читать поток построчно и слать события `server-log`. Детектить готовность.
 fn stream_reader<R: std::io::Read + Send + 'static>(
     app: AppHandle,
@@ -174,9 +255,8 @@ fn stream_reader<R: std::io::Read + Send + 'static>(
     });
 }
 
-/// Страховочный сторож готовности: если по логу готовность так и не поймали,
-/// периодически пробуем открыть TCP-соединение к порту. Если за READY_TIMEOUT
-/// сервер не поднялся и процесс всё ещё «наш» — сообщаем UI об ошибке.
+/// Страховочный сторож: если лог не поймал «listening», пробуем HTTP /health
+/// (не голый TCP — иначе любой процесс на порту даст ложный ready).
 fn spawn_ready_watchdog(app: AppHandle, port: u16, id: u64, ready: Arc<AtomicBool>) {
     std::thread::spawn(move || {
         let deadline = Instant::now() + READY_TIMEOUT;
@@ -184,10 +264,13 @@ fn spawn_ready_watchdog(app: AppHandle, port: u16, id: u64, ready: Arc<AtomicBoo
             if ready.load(Ordering::SeqCst) {
                 return; // уже готов (лог поймал раньше)
             }
-            // Активная проверка: порт принимает соединения → сервер слушает.
-            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-            if TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_ok() {
-                mark_ready(&app, &ready, port);
+            if http_health_ok(port) {
+                // Убедимся, что это всё ещё наш запуск.
+                let st = app.state::<ServerState>();
+                let is_current = st.lock().as_ref().map(|s| s.id == id).unwrap_or(false);
+                if is_current {
+                    mark_ready(&app, &ready, port);
+                }
                 return;
             }
             std::thread::sleep(Duration::from_millis(500));
@@ -210,6 +293,23 @@ fn spawn_ready_watchdog(app: AppHandle, port: u16, id: u64, ready: Arc<AtomicBoo
     });
 }
 
+fn status_from(opt: Option<&RunningServer>) -> ServerStatus {
+    match opt {
+        Some(s) => ServerStatus {
+            running: true,
+            ready: s.ready.load(Ordering::SeqCst),
+            port: Some(s.port),
+            model_name: Some(s.model_name.clone()),
+        },
+        None => ServerStatus {
+            running: false,
+            ready: false,
+            port: None,
+            model_name: None,
+        },
+    }
+}
+
 // ── Tauri-команды ────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -222,6 +322,8 @@ pub fn start_server(
     if guard.is_some() {
         return Err("Сервер уже запущен. Сначала остановите его.".into());
     }
+
+    validate_launch_config(&config)?;
 
     // Валидация путей и порта (раннее обнаружение проблем).
     // Примечание: проверка порта → spawn = TOCTOU; если между проверкой и bind
@@ -276,7 +378,7 @@ pub fn start_server(
         stream_reader(app.clone(), err, config.port, ready.clone());
     }
 
-    // Сторож готовности: таймаут + активная TCP-проверка, если лог не поймал «listening».
+    // Сторож готовности: таймаут + HTTP /health, если лог не поймал «listening».
     spawn_ready_watchdog(app.clone(), config.port, id, ready.clone());
 
     // Поток-наблюдатель владеет Child и ждёт его завершения (в т.ч. самопадение/краш).
@@ -301,10 +403,12 @@ pub fn start_server(
         port: config.port,
         model_name: model_name.clone(),
         id,
+        ready: ready.clone(),
     });
 
     Ok(ServerStatus {
         running: true,
+        ready: false,
         port: Some(config.port),
         model_name: Some(model_name),
     })
@@ -330,16 +434,58 @@ pub fn stop_server(app: AppHandle, state: State<ServerState>) -> Result<(), Stri
 #[tauri::command]
 pub fn server_status(state: State<ServerState>) -> ServerStatus {
     let guard = state.lock();
-    match guard.as_ref() {
-        Some(s) => ServerStatus {
-            running: true,
-            port: Some(s.port),
-            model_name: Some(s.model_name.clone()),
-        },
-        None => ServerStatus {
-            running: false,
-            port: None,
-            model_name: None,
-        },
+    status_from(guard.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn base_cfg() -> LaunchConfig {
+        LaunchConfig {
+            llama_dir: "C:\\llama".into(),
+            model_path: "C:\\m.gguf".into(),
+            ctx: 4096,
+            kv_quant: "q4_0".into(),
+            threads: 4,
+            ngl: 32,
+            port: 8080,
+            tools: false,
+        }
+    }
+
+    #[test]
+    fn validate_accepts_sane_config() {
+        assert!(validate_launch_config(&base_cfg()).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_bad_kv() {
+        let mut c = base_cfg();
+        c.kv_quant = "q3_K".into();
+        assert!(validate_launch_config(&c).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_ctx_out_of_range() {
+        let mut c = base_cfg();
+        c.ctx = 10;
+        assert!(validate_launch_config(&c).is_err());
+        c.ctx = 200_000;
+        assert!(validate_launch_config(&c).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_zero_port() {
+        let mut c = base_cfg();
+        c.port = 0;
+        assert!(validate_launch_config(&c).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_huge_ngl() {
+        let mut c = base_cfg();
+        c.ngl = NGL_MAX + 1;
+        assert!(validate_launch_config(&c).is_err());
     }
 }

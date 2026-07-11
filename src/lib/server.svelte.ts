@@ -76,11 +76,17 @@ class ServerStore {
     );
 
     // Синхронизировать начальный статус (на случай hot-reload).
+    // ready приходит с backend — не застреваем в «Загрузка модели», если сервер уже up.
     try {
       const st = await serverStatus();
       this.running = st.running;
+      this.ready = st.ready ?? false;
       this.port = st.port;
       this.modelName = st.model_name;
+      if (this.ready && this.port && prefs.openUiOnReady) {
+        // Не авто-открываем UI при hot-reload — только синхронизируем флаги.
+        this.#autoOpened = true;
+      }
     } catch {
       /* игнор */
     }
@@ -95,11 +101,13 @@ class ServerStore {
     try {
       const st = await startServer(config);
       this.running = st.running;
+      this.ready = st.ready ?? false;
       this.port = st.port;
       this.modelName = st.model_name;
     } catch (e) {
       this.error = String(e);
       this.running = false;
+      this.ready = false;
     } finally {
       this.starting = false;
     }

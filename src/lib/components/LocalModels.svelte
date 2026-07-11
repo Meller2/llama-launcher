@@ -267,7 +267,7 @@
               {#if prefs.showAutoDetails}
                 <div class="reco-grid">
                   <span class="k">{prefs.t("models.auto.ngl")}</span>
-                  <span class="v">{auto.ngl >= 99 ? prefs.t("models.auto.ngl_all") : auto.ngl}</span>
+                  <span class="v">{auto.full_offload ? prefs.t("models.auto.ngl_all") : auto.ngl}</span>
                   <span class="k">{prefs.t("models.auto.ctx")}</span>
                   <span class="v">{auto.ctx.toLocaleString()}</span>
                   {#if prefs.showAdvanced}
