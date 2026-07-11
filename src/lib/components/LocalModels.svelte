@@ -27,9 +27,11 @@
   let selected = $state<string | null>(null);
   let meta = $state<GgufMeta | null>(null);
   let metaLoading = $state(false);
+  let selectionRequest = 0;
 
   let hw = $state<HardwareInfo | null>(null);
   let auto = $state<AutoConfig | null>(null);
+  let autoPath = $state<string | null>(null);
   let autoLoading = $state(false);
   // Новичок всегда на авто; остальные могут выключить.
   let useAuto = $state(true);
@@ -59,20 +61,41 @@
   }
 
   async function select(m: ModelInfo) {
+    const request = ++selectionRequest;
+    const path = m.path;
     selected = m.path;
     meta = null;
     auto = null;
+    autoPath = null;
     metaLoading = true;
     autoLoading = true;
     // Мета и авто-конфиг независимы — тянем параллельно.
     readGgufMeta(m.path)
-      .then((r) => (meta = r))
-      .catch(() => (meta = null))
-      .finally(() => (metaLoading = false));
+      .then((r) => {
+        if (request === selectionRequest && selected === path) meta = r;
+      })
+      .catch(() => {
+        if (request === selectionRequest && selected === path) meta = null;
+      })
+      .finally(() => {
+        if (request === selectionRequest && selected === path) metaLoading = false;
+      });
     autoConfig(m.path)
-      .then((r) => (auto = r))
-      .catch(() => (auto = null))
-      .finally(() => (autoLoading = false));
+      .then((r) => {
+        if (request === selectionRequest && selected === path) {
+          auto = r;
+          autoPath = path;
+        }
+      })
+      .catch(() => {
+        if (request === selectionRequest && selected === path) {
+          auto = null;
+          autoPath = null;
+        }
+      })
+      .finally(() => {
+        if (request === selectionRequest && selected === path) autoLoading = false;
+      });
   }
 
   const filtered = $derived(
@@ -86,17 +109,29 @@
   const selectedModel = $derived(
     models.find((m) => m.path === selected) ?? null,
   );
+  const autoRequired = $derived(!prefs.canDisableAuto || useAuto);
+  const autoReadyForSelection = $derived(
+    !!selected && autoPath === selected && auto !== null,
+  );
+  const launchDisabled = $derived(
+    serverState.running ||
+      serverState.starting ||
+      !settings.llama_dir ||
+      (autoRequired && (autoLoading || !autoReadyForSelection)),
+  );
 
   async function launch(m: ModelInfo) {
     if (!settings.llama_dir) return;
     const autoOn = !prefs.canDisableAuto || useAuto;
+    const modelAuto = autoPath === m.path ? auto : null;
+    if (autoOn && !modelAuto) return;
     const cfg: LaunchConfig = {
       llama_dir: settings.llama_dir,
       model_path: m.path,
-      ctx: autoOn && auto ? auto.ctx : settings.defaults.ctx,
-      kv_quant: autoOn && auto ? auto.kv_quant : settings.defaults.kv_quant,
-      threads: autoOn && auto ? auto.threads : settings.defaults.threads,
-      ngl: autoOn && auto ? auto.ngl : settings.defaults.ngl,
+      ctx: autoOn && modelAuto ? modelAuto.ctx : settings.defaults.ctx,
+      kv_quant: autoOn && modelAuto ? modelAuto.kv_quant : settings.defaults.kv_quant,
+      threads: autoOn && modelAuto ? modelAuto.threads : settings.defaults.threads,
+      ngl: autoOn && modelAuto ? modelAuto.ngl : settings.defaults.ngl,
       port: settings.defaults.port,
       tools: settings.defaults.tools,
     };
@@ -266,7 +301,7 @@
 
           <button
             class="btn btn-primary launch"
-            disabled={serverState.running || serverState.starting}
+            disabled={launchDisabled}
             onclick={() => launch(selectedModel)}
           >
             {#if serverState.running}
