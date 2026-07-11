@@ -264,7 +264,7 @@ pub fn scan_models(folders: Vec<String>) -> Vec<ModelInfo> {
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out.dedup_by(|a, b| a.path == b.path);
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|model| model.name.to_lowercase());
     out
 }
 
