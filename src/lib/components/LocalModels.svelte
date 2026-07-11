@@ -33,6 +33,8 @@
   let autoLoading = $state(false);
   // Новичок всегда на авто; остальные могут выключить.
   let useAuto = $state(true);
+  /** Поколение select(): отбрасываем ответы устаревших async autoConfig/meta. */
+  let selectGen = 0;
   $effect(() => {
     if (!prefs.canDisableAuto) useAuto = true;
   });
@@ -59,20 +61,35 @@
   }
 
   async function select(m: ModelInfo) {
-    selected = m.path;
+    const gen = ++selectGen;
+    const path = m.path;
+    selected = path;
     meta = null;
     auto = null;
     metaLoading = true;
     autoLoading = true;
     // Мета и авто-конфиг независимы — тянем параллельно.
-    readGgufMeta(m.path)
-      .then((r) => (meta = r))
-      .catch(() => (meta = null))
-      .finally(() => (metaLoading = false));
-    autoConfig(m.path)
-      .then((r) => (auto = r))
-      .catch(() => (auto = null))
-      .finally(() => (autoLoading = false));
+    // Привязка к gen: быстрый A→B не должен применить результат A к B.
+    readGgufMeta(path)
+      .then((r) => {
+        if (gen === selectGen) meta = r;
+      })
+      .catch(() => {
+        if (gen === selectGen) meta = null;
+      })
+      .finally(() => {
+        if (gen === selectGen) metaLoading = false;
+      });
+    autoConfig(path)
+      .then((r) => {
+        if (gen === selectGen) auto = r;
+      })
+      .catch(() => {
+        if (gen === selectGen) auto = null;
+      })
+      .finally(() => {
+        if (gen === selectGen) autoLoading = false;
+      });
   }
 
   const filtered = $derived(
@@ -87,9 +104,22 @@
     models.find((m) => m.path === selected) ?? null,
   );
 
+  /** Авто включено — ждём расчёт, чтобы не запустить модель на defaults «молча». */
+  const waitingAuto = $derived(
+    (!prefs.canDisableAuto || useAuto) && autoLoading,
+  );
+
+  const launchDisabled = $derived(
+    !settings.llama_dir ||
+      serverState.running ||
+      serverState.starting ||
+      waitingAuto,
+  );
+
   async function launch(m: ModelInfo) {
-    if (!settings.llama_dir) return;
+    if (!settings.llama_dir || launchDisabled) return;
     const autoOn = !prefs.canDisableAuto || useAuto;
+    // autoOn + auto=null (ошибка расчёта) → осознанный fallback на defaults.
     const cfg: LaunchConfig = {
       llama_dir: settings.llama_dir,
       model_path: m.path,
@@ -266,13 +296,15 @@
 
           <button
             class="btn btn-primary launch"
-            disabled={serverState.running || serverState.starting}
+            disabled={launchDisabled}
             onclick={() => launch(selectedModel)}
           >
             {#if serverState.running}
               ● {prefs.t("models.already")}
             {:else if serverState.starting}
               {prefs.t("models.launching")}
+            {:else if waitingAuto}
+              {prefs.t("models.auto.loading")}
             {:else}
               ▶ {prefs.t("models.launch")}
             {/if}

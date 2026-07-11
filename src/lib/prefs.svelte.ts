@@ -14,11 +14,27 @@ class Prefs {
   expertise = $state<Expertise>("beginner");
   openUiOnReady = $state(true);
 
+  constructor() {
+    // Синхронизация data-locale / lang с DOM (шрифты, a11y).
+    $effect.root(() => {
+      $effect(() => {
+        this.#syncDomLocale(this.locale);
+      });
+    });
+  }
+
+  #syncDomLocale(locale: Locale) {
+    if (typeof document === "undefined") return;
+    document.documentElement.lang = locale;
+    document.documentElement.dataset.locale = locale;
+  }
+
   /** Применить из загруженных/сохранённых настроек. */
   apply(s: Settings) {
     this.locale = normalizeLocale(s.locale);
     this.expertise = normalizeExpertise(s.expertise);
     this.openUiOnReady = s.open_ui_on_ready !== false;
+    this.#syncDomLocale(this.locale);
   }
 
   t(key: string, params?: Record<string, string | number>): string {

@@ -118,7 +118,12 @@ pub fn load(app: &AppHandle) -> Settings {
     }
 }
 
-/// Атомарная запись: пишем во временный файл рядом, затем rename поверх.
+/// Атомарная (насколько позволяет ОС) запись: tmp → replace target.
+///
+/// На Windows `std::fs::rename` **не** заменяет существующий файл (в отличие от
+/// POSIX). Поэтому: пишем `.json.tmp`, сдвигаем старый `settings.json` в
+/// `.json.bak`, затем переименовываем tmp → target. При сбое rename
+/// восстанавливаем bak.
 pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let path = settings_path(app)?;
     if let Some(parent) = path.parent() {
@@ -129,11 +134,35 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
         .map_err(|e| format!("Ошибка сериализации настроек: {e}"))?;
 
     let tmp = path.with_extension("json.tmp");
+    let bak = path.with_extension("json.bak");
     std::fs::write(&tmp, json.as_bytes())
         .map_err(|e| format!("Не удалось записать настройки: {e}"))?;
-    std::fs::rename(&tmp, &path)
-        .map_err(|e| format!("Не удалось сохранить настройки: {e}"))?;
-    Ok(())
+
+    // Путь свободен (первый save) — обычный rename.
+    if !path.exists() {
+        std::fs::rename(&tmp, &path)
+            .map_err(|e| format!("Не удалось сохранить настройки: {e}"))?;
+        return Ok(());
+    }
+
+    // Target уже есть: убрать старый bak, сдвинуть target → bak, tmp → target.
+    let _ = std::fs::remove_file(&bak);
+    std::fs::rename(&path, &bak).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Не удалось сохранить настройки: {e}")
+    })?;
+    match std::fs::rename(&tmp, &path) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&bak);
+            Ok(())
+        }
+        Err(e) => {
+            // Откат: вернуть предыдущий settings.json, если возможно.
+            let _ = std::fs::rename(&bak, &path);
+            let _ = std::fs::remove_file(&tmp);
+            Err(format!("Не удалось сохранить настройки: {e}"))
+        }
+    }
 }
 
 /// Проверка, что в папке есть llama-server.exe.

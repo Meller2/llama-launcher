@@ -12,6 +12,8 @@ const ru: Dict = {
   "app.tab.catalog": "Каталог",
   "app.tab.running": "Запущено",
   "app.tab.settings": "Настройки",
+  "app.boot_err.title": "Не удалось загрузить настройки",
+  "app.boot_err.retry": "Повторить",
 
   // Onboarding common
   "onb.back": "Назад",
@@ -19,6 +21,7 @@ const ru: Dict = {
   "onb.skip": "Пропустить",
   "onb.finish": "Начать",
   "onb.saving": "Сохраняю…",
+  "onb.save_err": "Ошибка сохранения",
   "onb.step_of": "Шаг {n} из {total}",
 
   // Step: language
@@ -206,12 +209,15 @@ const en: Dict = {
   "app.tab.catalog": "Catalog",
   "app.tab.running": "Running",
   "app.tab.settings": "Settings",
+  "app.boot_err.title": "Failed to load settings",
+  "app.boot_err.retry": "Retry",
 
   "onb.back": "Back",
   "onb.next": "Next",
   "onb.skip": "Skip",
   "onb.finish": "Get started",
   "onb.saving": "Saving…",
+  "onb.save_err": "Save failed",
   "onb.step_of": "Step {n} of {total}",
 
   "onb.lang.title": "Interface language",

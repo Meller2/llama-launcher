@@ -64,6 +64,9 @@ class ServerStore {
         this.running = false;
         this.ready = false;
         this.stopping = false;
+        // Не оставляем устаревшие port/model после выхода процесса.
+        this.port = null;
+        this.modelName = null;
         // Ручной стоп через taskkill даёт ненулевой код — это норма, не ошибка.
         // Ошибку показываем только при самопадении (краш, не загрузилась модель).
         if (!wasManualStop && e.payload !== 0) {

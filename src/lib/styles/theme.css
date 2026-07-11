@@ -39,8 +39,9 @@
   --danger-line: rgba(255, 107, 94, 0.32);
 
   /* ── Типографика ─────────────────────────────────────────────────────────
-     display — акцентные заголовки/бренд (латиница Space Grotesk, кириллица → Inter);
-     sans — тело; mono — цифры/параметры/пути/логи. */
+     display — заголовки/бренд (EN: Space Grotesk; RU: Inter — у SG нет кириллицы);
+     sans — тело; mono — цифры/параметры/пути/логи.
+     Inter + JetBrains Mono: полная кириллица. Space Grotesk: только латиница. */
   --font-display: "Space Grotesk", "Inter", "Segoe UI", system-ui, sans-serif;
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, "Consolas", monospace;
@@ -80,6 +81,11 @@ body {
   overflow: hidden;
   user-select: none;
   font-feature-settings: "cv05", "ss01";
+}
+
+/* RU: Space Grotesk без кириллицы → единый Inter для display, без «ломаных» заголовков. */
+:root[data-locale="ru"] {
+  --font-display: "Inter", "Segoe UI", system-ui, sans-serif;
 }
 
 h1, h2, h3, h4 {

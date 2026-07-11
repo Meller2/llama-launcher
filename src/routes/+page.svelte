@@ -10,13 +10,22 @@
 
   let settings = $state<Settings | null>(null);
   let loading = $state(true);
+  let bootError = $state<string | null>(null);
   let tab = $state<"models" | "catalog" | "running" | "settings">("models");
 
   async function init() {
-    settings = await loadSettings();
-    prefs.apply(settings);
-    loading = false;
-    await serverState.init();
+    loading = true;
+    bootError = null;
+    try {
+      settings = await loadSettings();
+      prefs.apply(settings);
+      await serverState.init();
+    } catch (e) {
+      bootError = String(e);
+      settings = null;
+    } finally {
+      loading = false;
+    }
   }
   init();
 
@@ -47,6 +56,13 @@
 {#if loading}
   <div class="boot">
     <img class="logo-mark boot-mark" src="/logo1.png" alt="LlamaLauncher" />
+  </div>
+{:else if bootError}
+  <div class="boot boot-err">
+    <img class="logo-mark sm" src="/logo1.png" alt="" />
+    <h2>{prefs.t("app.boot_err.title")}</h2>
+    <p class="boot-msg">{bootError}</p>
+    <button class="btn btn-primary" onclick={init}>{prefs.t("app.boot_err.retry")}</button>
   </div>
 {:else if settings && showSetup}
   <Onboarding {settings} oncomplete={onOnboarded} />
@@ -91,6 +107,26 @@
   .boot {
     height: 100vh; display: grid; place-items: center;
   }
+  .boot-err {
+    gap: 12px;
+    padding: 32px;
+    text-align: center;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  .boot-err h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .boot-msg {
+    margin: 0;
+    color: var(--text-1);
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+  }
   .logo-mark {
     display: block;
     object-fit: contain;
@@ -101,6 +137,7 @@
     width: 132px; height: 132px;
     animation: pulse 1.6s ease-in-out infinite;
   }
+  .logo-mark.sm { width: 56px; height: 56px; }
   @keyframes pulse {
     0%, 100% { transform: scale(1);    opacity: .9;  }
     50%      { transform: scale(1.05); opacity: 1;   }

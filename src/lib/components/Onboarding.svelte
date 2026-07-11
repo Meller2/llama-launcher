@@ -68,6 +68,7 @@
   let installedBackend = $state<string | null>(settings.runtime_backend);
   let installedLabel = $state<string | null>(null);
   let saving = $state(false);
+  let saveError = $state<string | null>(null);
 
   let unlisten: UnlistenFn | null = null;
   $effect(() => {
@@ -212,8 +213,9 @@
   }
 
   async function finish() {
-    if (!engineOk || modelFolders.length === 0 || installing) return;
+    if (!engineOk || modelFolders.length === 0 || installing || saving) return;
     saving = true;
+    saveError = null;
     const usedManual = manual && !installedPath;
     const dir = (usedManual ? llamaDir : installedPath) ?? llamaDir;
     const updated: Settings = {
@@ -229,10 +231,16 @@
       runtime_tag: usedManual ? null : (installedTag ?? rt?.tag ?? null),
       runtime_backend: usedManual ? null : (installedBackend ?? rt?.backend ?? null),
     };
-    prefs.apply(updated);
-    await saveSettings(updated);
-    saving = false;
-    oncomplete(updated);
+    try {
+      prefs.apply(updated);
+      await saveSettings(updated);
+      oncomplete(updated);
+    } catch (e) {
+      // Не оставляем кнопку в «Сохраняю…» и не уходим с wizard'а.
+      saveError = String(e);
+    } finally {
+      saving = false;
+    }
   }
 
   const pct = $derived(
@@ -477,6 +485,9 @@
       {/if}
     </div>
 
+    {#if step === "done" && saveError}
+      <p class="save-err" role="alert">{prefs.t("onb.save_err")}: {saveError}</p>
+    {/if}
     <div class="nav-row">
       {#if stepIndex > 0}
         <button class="btn" onclick={back} disabled={installing || saving}>{prefs.t("onb.back")}</button>
@@ -687,4 +698,15 @@
     gap: 12px; padding-top: 4px;
   }
   .nav-row .btn-primary { min-width: 120px; }
+  .save-err {
+    margin: 0 0 8px;
+    padding: 10px 12px;
+    border-radius: var(--radius-m);
+    background: var(--danger-soft);
+    border: 1px solid var(--danger-line);
+    color: var(--danger);
+    font-size: 12.5px;
+    line-height: 1.4;
+    word-break: break-word;
+  }
 </style>
