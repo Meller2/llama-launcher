@@ -112,13 +112,45 @@ pub fn load(app: &AppHandle) -> Settings {
         Ok(p) => p,
         Err(_) => return Settings::default(),
     };
-    match std::fs::read_to_string(&path) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-        Err(_) => Settings::default(),
-    }
+    load_from_path(&path).unwrap_or_default()
 }
 
-/// Атомарная запись: пишем во временный файл рядом, затем rename поверх.
+fn load_from_path(path: &Path) -> Option<Settings> {
+    let parse = |candidate: &Path| {
+        std::fs::read_to_string(candidate)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    };
+    parse(path).or_else(|| parse(&path.with_extension("json.bak")))
+}
+
+/// Безопасная замена с rollback, одинаково работающая на Windows и Unix.
+/// Windows не гарантирует `rename(tmp, existing)`, поэтому сначала сохраняем
+/// старый файл как backup и восстанавливаем его при любой ошибке активации.
+fn replace_with_backup(tmp: &Path, path: &Path) -> Result<(), String> {
+    let backup = path.with_extension("json.bak");
+    if backup.exists() {
+        std::fs::remove_file(&backup)
+            .map_err(|e| format!("Не удалось удалить старую копию настроек: {e}"))?;
+    }
+    let had_previous = path.exists();
+    if had_previous {
+        std::fs::rename(path, &backup)
+            .map_err(|e| format!("Не удалось создать резервную копию настроек: {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(tmp, path) {
+        if had_previous {
+            let _ = std::fs::rename(&backup, path);
+        }
+        return Err(format!("Не удалось активировать новые настройки: {e}"));
+    }
+    if had_previous {
+        let _ = std::fs::remove_file(backup);
+    }
+    Ok(())
+}
+
+/// Запись через временный файл и rollback-safe замену.
 pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let path = settings_path(app)?;
     if let Some(parent) = path.parent() {
@@ -131,9 +163,7 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, json.as_bytes())
         .map_err(|e| format!("Не удалось записать настройки: {e}"))?;
-    std::fs::rename(&tmp, &path)
-        .map_err(|e| format!("Не удалось сохранить настройки: {e}"))?;
-    Ok(())
+    replace_with_backup(&tmp, &path)
 }
 
 /// Проверка, что в папке есть llama-server.exe.
@@ -164,4 +194,53 @@ pub fn validate_llama_dir(dir: String) -> bool {
 #[tauri::command]
 pub fn setup_version() -> u32 {
     SETUP_VERSION
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let unique = format!(
+            "llama-launcher-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn replaces_existing_settings_file() {
+        let dir = temp_dir("replace");
+        let path = dir.join("settings.json");
+        let tmp = dir.join("settings.json.tmp");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::write(&tmp, "new").unwrap();
+
+        replace_with_backup(&tmp, &path).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        assert!(!path.with_extension("json.bak").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_backup_when_primary_is_missing() {
+        let dir = temp_dir("backup");
+        let path = dir.join("settings.json");
+        let settings = Settings { onboarded: true, ..Settings::default() };
+        std::fs::write(
+            path.with_extension("json.bak"),
+            serde_json::to_string(&settings).unwrap(),
+        )
+        .unwrap();
+
+        assert!(load_from_path(&path).unwrap().onboarded);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
