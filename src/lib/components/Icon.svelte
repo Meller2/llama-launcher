@@ -19,7 +19,9 @@
       | "search"
       | "stop"
       | "external"
-      | "copy";
+      | "copy"
+      | "send"
+      | "trash";
     size?: number;
     stroke?: number;
   } = $props();
@@ -77,6 +79,13 @@
   {:else if name === "copy"}
     <rect x="9" y="9" width="10" height="10" rx="1.5" />
     <path d="M7 15H6a1.5 1.5 0 0 1-1.5-1.5v-8A1.5 1.5 0 0 1 6 4h8A1.5 1.5 0 0 1 15.5 5.5V7" />
+  {:else if name === "send"}
+    <path d="M5 12h12" />
+    <path d="m12 6 6 6-6 6" />
+  {:else if name === "trash"}
+    <path d="M5 8h14" />
+    <path d="M9 8V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    <path d="M7 8l1 12h8l1-12" />
   {/if}
 </svg>
 

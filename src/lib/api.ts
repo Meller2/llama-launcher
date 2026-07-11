@@ -192,6 +192,28 @@ export const hfDownload = (
 export const hfCancelDownload = (): Promise<void> =>
   invoke("hf_cancel_download");
 
+// ── Чат (прокси к llama-server /v1/chat/completions) ─────────────────────────
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+/** Событие `chat-delta` со стримингом. */
+export interface ChatDelta {
+  delta: string;
+  done: boolean;
+  error: string | null;
+}
+
+/** Стрим ответа; токены приходят событием `chat-delta`. */
+export const chatStream = (
+  port: number,
+  messages: ChatMessage[],
+): Promise<void> => invoke("chat_stream", { port, messages });
+
+export const chatCancel = (): Promise<void> => invoke("chat_cancel");
+
 // ── Managed runtime (llama.cpp) ───────────────────────────────────────────────
 
 export interface RuntimeStatus {

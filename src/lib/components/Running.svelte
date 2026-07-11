@@ -2,6 +2,7 @@
   import { serverState } from "$lib/server.svelte";
   import { prefs } from "$lib/prefs.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import ChatPanel from "$lib/components/ChatPanel.svelte";
 
   let {
     onmodels,
@@ -191,11 +192,19 @@
       </div>
     {/if}
 
-    {#if serverState.running && !serverState.ready && !showLog && !prefs.isExpert}
+    {#if serverState.ready}
+      <div class="glass chat-wrap">
+        <ChatPanel
+          port={serverState.port}
+          ready={serverState.ready}
+          modelKey={`${serverState.modelName ?? ""}:${serverState.port ?? 0}`}
+        />
+      </div>
+    {:else if serverState.running && !showLog && !prefs.isExpert}
       <div class="glass loading-card">
         <div class="load-ring"></div>
         <p>{prefs.t("run.loading")}</p>
-        <p class="dim">{prefs.t("run.log_show")} →</p>
+        <p class="dim">{prefs.t("chat.need_ready")}</p>
       </div>
     {/if}
 
@@ -214,7 +223,12 @@
     </div>
 
     {#if showLog || prefs.isExpert}
-      <div class="glass console selectable" bind:this={logEl} onscroll={onScroll}>
+      <div
+        class="glass console selectable"
+        class:console-compact={serverState.ready}
+        bind:this={logEl}
+        onscroll={onScroll}
+      >
         {#each serverState.log as line, i (i)}
           <div class="line">{line}</div>
         {/each}
@@ -392,6 +406,15 @@
     color: var(--accent-hover);
   }
 
+  .chat-wrap {
+    flex: 1;
+    min-height: 220px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
   .log-toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -422,6 +445,11 @@
   }
   .line.dim {
     color: var(--text-2);
+  }
+  .console-compact {
+    flex: 0 0 auto;
+    max-height: 160px;
+    min-height: 80px;
   }
 
   .scroll-btn {
