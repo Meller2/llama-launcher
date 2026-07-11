@@ -12,8 +12,9 @@
 
 use crate::hardware::detect_hardware;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -26,6 +27,7 @@ const GH_API: &str = "https://api.github.com/repos/ggml-org/llama.cpp";
 const UA: &str = concat!("LlamaLauncher/", env!("CARGO_PKG_VERSION"));
 const EMIT_STEP: u64 = 2_000_000;
 const SERVER_EXE: &str = "llama-server.exe";
+const RELEASE_CANDIDATES: usize = 10;
 
 // ── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -246,6 +248,9 @@ struct GhAsset {
     name: String,
     browser_download_url: String,
     size: u64,
+    /// GitHub Releases API: `sha256:<hex>`.
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -257,8 +262,11 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("Не удалось создать HTTP-клиент: {e}"))
 }
 
-async fn fetch_latest_release() -> Result<GhRelease, String> {
-    let url = format!("{GH_API}/releases/latest");
+async fn fetch_compatible_release(backend: &RuntimeBackend) -> Result<GhRelease, String> {
+    // Не используем /releases/latest: у llama.cpp релиз становится latest до того,
+    // как GitHub Actions успевает долить все CUDA/cuDART assets. Просматриваем
+    // несколько последних релизов и берём первый полностью опубликованный.
+    let url = format!("{GH_API}/releases?per_page={RELEASE_CANDIDATES}");
     let resp = client()?
         .get(&url)
         .header("Accept", "application/vnd.github+json")
@@ -271,34 +279,90 @@ async fn fetch_latest_release() -> Result<GhRelease, String> {
             resp.status()
         ));
     }
-    resp.json::<GhRelease>()
+    let releases = resp
+        .json::<Vec<GhRelease>>()
         .await
-        .map_err(|e| format!("Не удалось разобрать ответ GitHub: {e}"))
+        .map_err(|e| format!("Не удалось разобрать ответ GitHub: {e}"))?;
+
+    releases
+        .into_iter()
+        .find(|release| find_assets(release, backend).is_some())
+        .ok_or_else(|| {
+            format!(
+                "В последних {RELEASE_CANDIDATES} релизах llama.cpp нет полного набора {} с SHA-256. Попробуйте позже или выберите другой backend.",
+                backend.label_ru()
+            )
+        })
 }
 
-/// Имена asset'ов для backend (основной zip + опциональный cudart).
-fn asset_names(tag: &str, backend: &RuntimeBackend) -> (String, Option<String>) {
+/// Суффиксы asset'ов для backend. Не привязываемся к точному tag внутри имени:
+/// GitHub иногда публикует metadata раньше полного набора файлов.
+fn asset_suffixes(backend: &RuntimeBackend) -> (&'static str, Option<&'static str>) {
     match backend {
-        RuntimeBackend::Cpu => (format!("llama-{tag}-bin-win-cpu-x64.zip"), None),
-        RuntimeBackend::Vulkan => (format!("llama-{tag}-bin-win-vulkan-x64.zip"), None),
+        RuntimeBackend::Cpu => ("-bin-win-cpu-x64.zip", None),
+        RuntimeBackend::Vulkan => ("-bin-win-vulkan-x64.zip", None),
         RuntimeBackend::Cuda12 => (
-            format!("llama-{tag}-bin-win-cuda-12.4-x64.zip"),
-            Some("cudart-llama-bin-win-cuda-12.4-x64.zip".into()),
+            "-bin-win-cuda-12.4-x64.zip",
+            Some("cudart-llama-bin-win-cuda-12.4-x64.zip"),
         ),
     }
 }
 
-fn find_asset<'a>(release: &'a GhRelease, name: &str) -> Result<&'a GhAsset, String> {
-    release
-        .assets
-        .iter()
-        .find(|a| a.name == name)
-        .ok_or_else(|| {
-            format!(
-                "В релизе {} нет файла «{name}». Попробуйте другой backend или позже.",
-                release.tag_name
-            )
-        })
+fn sha256_digest(asset: &GhAsset) -> Option<&str> {
+    let digest = asset.digest.as_deref()?.strip_prefix("sha256:")?;
+    (digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())).then_some(digest)
+}
+
+fn find_assets<'a>(
+    release: &'a GhRelease,
+    backend: &RuntimeBackend,
+) -> Option<(&'a GhAsset, Option<&'a GhAsset>)> {
+    let (main_suffix, companion_name) = asset_suffixes(backend);
+    let main = release.assets.iter().find(|asset| {
+        asset.name.starts_with("llama-")
+            && asset.name.ends_with(main_suffix)
+            && sha256_digest(asset).is_some()
+    })?;
+    let companion = match companion_name {
+        Some(name) => Some(
+            release
+                .assets
+                .iter()
+                .find(|asset| asset.name == name && sha256_digest(asset).is_some())?,
+        ),
+        None => None,
+    };
+    Some((main, companion))
+}
+
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path)
+        .map_err(|e| format!("Не удалось открыть файл для проверки SHA-256: {e}"))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| format!("Ошибка чтения при проверке SHA-256: {e}"))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+async fn verify_asset(path: PathBuf, asset_name: String, expected: String) -> Result<(), DlErr> {
+    let actual = tokio::task::spawn_blocking(move || file_sha256(&path))
+        .await
+        .map_err(|e| DlErr::Failed(format!("Ошибка задачи SHA-256: {e}")))?
+        .map_err(DlErr::Failed)?;
+    if !actual.eq_ignore_ascii_case(&expected) {
+        return Err(DlErr::Failed(format!(
+            "SHA-256 файла «{asset_name}» не совпал. Архив удалён и не будет запущен."
+        )));
+    }
+    Ok(())
 }
 
 // ── Прогресс / скачивание ────────────────────────────────────────────────────
@@ -494,6 +558,31 @@ fn copy_dir_contents(src: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Подменить runtime с возможностью отката. Сначала сохраняем предыдущую
+/// рабочую папку, затем ставим проверенный staging. При ошибке возвращаем backup.
+fn replace_runtime_dir(staging: &Path, dest: &Path) -> Result<(), String> {
+    let backup = dest.with_extension("backup");
+    if backup.exists() {
+        std::fs::remove_dir_all(&backup)
+            .map_err(|e| format!("Не удалось удалить старый backup runtime: {e}"))?;
+    }
+    let had_previous = dest.exists();
+    if had_previous {
+        std::fs::rename(dest, &backup)
+            .map_err(|e| format!("Не удалось подготовить обновление runtime: {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(staging, dest) {
+        if had_previous {
+            let _ = std::fs::rename(&backup, dest);
+        }
+        return Err(format!("Не удалось активировать новый runtime: {e}"));
+    }
+    if had_previous {
+        let _ = std::fs::remove_dir_all(backup);
+    }
+    Ok(())
+}
+
 // ── Статус / установка ───────────────────────────────────────────────────────
 
 /// Прочитать managed-метаданные, если есть.
@@ -637,18 +726,33 @@ async fn install_impl(
         .join(".cache");
     ensure_dir(&cache).map_err(DlErr::Failed)?;
 
-    let release = fetch_latest_release().await.map_err(DlErr::Failed)?;
+    let release = fetch_compatible_release(&backend)
+        .await
+        .map_err(DlErr::Failed)?;
     let tag = release.tag_name.clone();
-    let (main_name, cudart_name) = asset_names(&tag, &backend);
-    let main_asset = find_asset(&release, &main_name).map_err(DlErr::Failed)?;
-    let cudart_asset = match &cudart_name {
-        Some(n) => Some(find_asset(&release, n).map_err(DlErr::Failed)?),
-        None => None,
-    };
+    let (main_asset, cudart_asset) = find_assets(&release, &backend).ok_or_else(|| {
+        DlErr::Failed(format!(
+            "Релиз {tag} не содержит полный набор {}.",
+            backend.label_ru()
+        ))
+    })?;
+    let main_name = main_asset.name.clone();
+    let main_url = main_asset.browser_download_url.clone();
+    let main_size = main_asset.size;
+    let main_digest = sha256_digest(main_asset)
+        .ok_or_else(|| DlErr::Failed(format!("Для «{main_name}» нет SHA-256.")))?
+        .to_string();
+    let cudart = cudart_asset.map(|asset| {
+        (
+            asset.name.clone(),
+            asset.browser_download_url.clone(),
+            asset.size,
+            sha256_digest(asset).unwrap_or_default().to_string(),
+        )
+    });
 
     // Оценка места: zip'ы * 2 (распаковка) + запас.
-    let need = main_asset.size
-        + cudart_asset.map(|a| a.size).unwrap_or(0);
+    let need = main_size + cudart.as_ref().map(|a| a.2).unwrap_or(0);
     let need = need.saturating_mul(3); // zip + extract + margin
     if let Some(free) = free_space_bytes(&runtime_root().map_err(DlErr::Failed)?) {
         if free < need {
@@ -667,25 +771,53 @@ async fn install_impl(
     stream_to_file(
         app,
         state,
-        &main_asset.browser_download_url,
+        &main_url,
         &main_zip,
         &format!("Скачиваю {}…", backend.label_ru()),
         &main_name,
     )
     .await?;
+    emit(
+        app,
+        "Проверяю SHA-256…",
+        &main_name,
+        0,
+        0,
+        false,
+        None,
+        false,
+    );
+    if let Err(err) = verify_asset(main_zip.clone(), main_name.clone(), main_digest).await {
+        let _ = std::fs::remove_file(&main_zip);
+        return Err(err);
+    }
 
     // Скачать cudart при необходимости.
-    let cudart_zip = if let Some(asset) = cudart_asset {
-        let p = cache.join(&asset.name);
+    let cudart_zip = if let Some((name, url, _, digest)) = &cudart {
+        let p = cache.join(name);
         stream_to_file(
             app,
             state,
-            &asset.browser_download_url,
+            url,
             &p,
             "Скачиваю CUDA Runtime…",
-            &asset.name,
+            name,
         )
         .await?;
+        emit(
+            app,
+            "Проверяю SHA-256…",
+            name,
+            0,
+            0,
+            false,
+            None,
+            false,
+        );
+        if let Err(err) = verify_asset(p.clone(), name.clone(), digest.clone()).await {
+            let _ = std::fs::remove_file(&p);
+            return Err(err);
+        }
         Some(p)
     } else {
         None
@@ -707,7 +839,14 @@ async fn install_impl(
     );
 
     // extract_zip синхронный и CPU-bound — в blocking-пул.
-    let dest_c = dest.clone();
+    // Всегда распаковываем в staging. Рабочий runtime не трогаем, пока новый
+    // полностью не проверен (особенно важно при переустановке CUDA).
+    let staging = dest.with_extension("installing");
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)
+            .map_err(|e| DlErr::Failed(format!("Не удалось очистить staging: {e}")))?;
+    }
+    let dest_c = staging.clone();
     let main_zip_c = main_zip.clone();
     tokio::task::spawn_blocking(move || extract_zip(&main_zip_c, &dest_c, false))
         .await
@@ -725,25 +864,27 @@ async fn install_impl(
             None,
             false,
         );
-        let dest_c = dest.clone();
+        let dest_c = staging.clone();
         tokio::task::spawn_blocking(move || extract_zip(&cz, &dest_c, true))
             .await
             .map_err(|e| DlErr::Failed(format!("Ошибка задачи распаковки: {e}")))?
             .map_err(DlErr::Failed)?;
     }
 
-    if !is_installed_at(&dest) {
+    if !is_installed_at(&staging) {
+        let _ = std::fs::remove_dir_all(&staging);
         return Err(DlErr::Failed(
             "После распаковки llama-server.exe не найден. Архив релиза изменился?".into(),
         ));
     }
 
-    write_meta(&dest, &tag, &backend).map_err(DlErr::Failed)?;
+    write_meta(&staging, &tag, &backend).map_err(DlErr::Failed)?;
+    replace_runtime_dir(&staging, &dest).map_err(DlErr::Failed)?;
 
     // Чистим zip-кэш (можно оставить — но экономим место).
     let _ = std::fs::remove_file(&main_zip);
-    if let Some(n) = cudart_name {
-        let _ = std::fs::remove_file(cache.join(n));
+    if let Some((name, _, _, _)) = cudart {
+        let _ = std::fs::remove_file(cache.join(name));
     }
 
     emit(
@@ -832,15 +973,6 @@ pub async fn runtime_install(
     state: State<'_, RuntimeInstallState>,
     backend: Option<String>,
 ) -> Result<RuntimeStatus, String> {
-    {
-        let mut active = state.lock_active();
-        if *active {
-            return Err("Установка движка уже идёт.".into());
-        }
-        *active = true;
-    }
-    state.cancel.store(false, Ordering::SeqCst);
-
     let backend = match backend.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "auto")
     {
         Some(id) => Some(
@@ -849,6 +981,15 @@ pub async fn runtime_install(
         ),
         None => None,
     };
+
+    {
+        let mut active = state.lock_active();
+        if *active {
+            return Err("Установка движка уже идёт.".into());
+        }
+        *active = true;
+    }
+    state.cancel.store(false, Ordering::SeqCst);
 
     let result = install_impl(&app, &state, backend).await;
     *state.lock_active() = false;
@@ -877,4 +1018,53 @@ pub fn ensure_default_models_dir() -> Result<String, String> {
     let dir = default_models_dir()?;
     ensure_dir(&dir)?;
     Ok(dir.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn asset(name: &str, digest: Option<&str>) -> GhAsset {
+        GhAsset {
+            name: name.into(),
+            browser_download_url: format!("https://example.invalid/{name}"),
+            size: 1,
+            digest: digest.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn cuda_requires_main_and_cudart_with_digests() {
+        let hash = format!("sha256:{}", "a".repeat(64));
+        let complete = GhRelease {
+            tag_name: "b1234".into(),
+            assets: vec![
+                asset("llama-b1234-bin-win-cuda-12.4-x64.zip", Some(&hash)),
+                asset("cudart-llama-bin-win-cuda-12.4-x64.zip", Some(&hash)),
+            ],
+        };
+        assert!(find_assets(&complete, &RuntimeBackend::Cuda12).is_some());
+
+        let incomplete = GhRelease {
+            tag_name: "b1235".into(),
+            assets: vec![asset(
+                "llama-b1235-bin-win-cuda-12.4-x64.zip",
+                Some(&hash),
+            )],
+        };
+        assert!(find_assets(&incomplete, &RuntimeBackend::Cuda12).is_none());
+    }
+
+    #[test]
+    fn asset_lookup_tolerates_tag_text_changes() {
+        let hash = format!("sha256:{}", "b".repeat(64));
+        let release = GhRelease {
+            tag_name: "release-b1234".into(),
+            assets: vec![asset(
+                "llama-b1234-bin-win-vulkan-x64.zip",
+                Some(&hash),
+            )],
+        };
+        assert!(find_assets(&release, &RuntimeBackend::Vulkan).is_some());
+    }
 }
