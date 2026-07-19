@@ -646,7 +646,10 @@ fn smoke_test_server(dir: &Path) -> Result<(), String> {
     // ничего не говорит о целостности. Проверяем только «не пустой файл» —
     // реальная проверка целостности ниже: реальный запуск `--version`.
     if meta.len() == 0 {
-        return Err("llama-server.exe пустой (0 байт) — архив повреждён или распаковка не завершилась.".into());
+        return Err(
+            "llama-server.exe пустой (0 байт) — архив повреждён или распаковка не завершилась."
+                .into(),
+        );
     }
 
     let mut cmd = Command::new(&exe);

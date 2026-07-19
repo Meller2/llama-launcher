@@ -48,6 +48,21 @@ jobs:
       - name: tauri build (NSIS)
         run: npm run tauri build -- --bundles nsis
 
+      - name: Prepare portable package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          Copy-Item src-tauri/target/release/llama-launcher.exe release-assets/llama-launcher-v${{ github.ref_name }}-portable.exe
+          Compress-Archive -Path src-tauri/target/release/llama-launcher.exe -DestinationPath release-assets/llama-launcher-v${{ github.ref_name }}-portable.zip -Force
+          Copy-Item src-tauri/target/release/bundle/nsis/*.exe release-assets/
+
+      - name: Upload Windows release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-launcher-windows-assets
+          path: release-assets/*
+          if-no-files-found: error
+
   runtime-integration:
     # Реальный pinned CUDA/Vulkan/CPU pipeline (download → sha256 → extract → smoke test).
     # Не на каждый push: качает полноразмерные релизные архивы llama.cpp.
