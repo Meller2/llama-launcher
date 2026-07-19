@@ -53,6 +53,8 @@ pub struct ServerStatus {
 pub struct ServerState {
     inner: Mutex<Option<RunningServer>>,
     next_id: AtomicU64,
+    /// Код выхода последнего завершившегося процесса (диагностика).
+    last_exit: Mutex<Option<i32>>,
 }
 
 impl ServerState {
@@ -60,6 +62,15 @@ impl ServerState {
     /// класть всё приложение — восстанавливаем внутреннее значение).
     fn lock(&self) -> MutexGuard<'_, Option<RunningServer>> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn lock_last_exit(&self) -> MutexGuard<'_, Option<i32>> {
+        self.last_exit.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Код выхода последнего завершившегося llama-server (для диагностики).
+    pub fn last_exit_code(&self) -> Option<i32> {
+        *self.lock_last_exit()
     }
 }
 
@@ -212,9 +223,8 @@ fn http_health_ok(port: u16) -> bool {
     };
     let _ = stream.set_read_timeout(Some(Duration::from_millis(600)));
     let _ = stream.set_write_timeout(Some(Duration::from_millis(400)));
-    let req = format!(
-        "GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-    );
+    let req =
+        format!("GET /health HTTP/1.0\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
     }
@@ -392,6 +402,7 @@ pub fn start_server(
             let is_current = g.as_ref().map(|s| s.id == id).unwrap_or(false);
             if is_current {
                 *g = None;
+                *st.lock_last_exit() = Some(code);
             }
             drop(g);
             let _ = app_mon.emit("server-exit", code);
@@ -433,6 +444,11 @@ pub fn stop_server(app: AppHandle, state: State<ServerState>) -> Result<(), Stri
 
 #[tauri::command]
 pub fn server_status(state: State<ServerState>) -> ServerStatus {
+    status(&state)
+}
+
+/// Текущий статус сервера (без Tauri State-обёртки — для переиспользования из diagnostics).
+pub fn status(state: &ServerState) -> ServerStatus {
     let guard = state.lock();
     status_from(guard.as_ref())
 }

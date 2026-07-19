@@ -204,7 +204,8 @@ fn backend_dir(tag: &str, backend: &RuntimeBackend) -> Result<PathBuf, String> {
 }
 
 fn ensure_dir(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|e| format!("Не удалось создать «{}»: {e}", path.display()))
+    std::fs::create_dir_all(path)
+        .map_err(|e| format!("Не удалось создать «{}»: {e}", path.display()))
 }
 
 /// Найти llama-server.exe в дереве (после распаковки zip может быть вложенная папка).
@@ -250,7 +251,13 @@ fn recommend_backend() -> RuntimeBackend {
     match hw.gpu {
         Some(g) => {
             let name = g.name.to_lowercase();
-            if name.contains("nvidia") || name.contains("geforce") || name.contains("rtx") || name.contains("gtx") || name.contains("quadro") || name.contains("tesla") {
+            if name.contains("nvidia")
+                || name.contains("geforce")
+                || name.contains("rtx")
+                || name.contains("gtx")
+                || name.contains("quadro")
+                || name.contains("tesla")
+            {
                 RuntimeBackend::Cuda12
             } else if g.vram_bytes > 0 {
                 // AMD / Intel / прочие с VRAM — Vulkan.
@@ -399,6 +406,9 @@ fn find_asset<'a>(release: &'a GhRelease, name: &str) -> Result<&'a GhAsset, Str
 
 // ── Прогресс / скачивание ────────────────────────────────────────────────────
 
+/// Единый набор параметров для одного события прогресса установки —
+/// разумнее не выносить в отдельный struct ради одной внутренней функции.
+#[allow(clippy::too_many_arguments)]
 fn emit(
     app: &AppHandle,
     stage: &str,
@@ -488,7 +498,16 @@ async fn stream_to_file(
             "Файл скачан не полностью: {downloaded} из {total} байт"
         )));
     }
-    emit(app, stage, label, downloaded, downloaded.max(total), false, None, false);
+    emit(
+        app,
+        stage,
+        label,
+        downloaded,
+        downloaded.max(total),
+        false,
+        None,
+        false,
+    );
     Ok(downloaded)
 }
 
@@ -510,9 +529,7 @@ fn extract_zip(zip_path: &Path, dest: &Path, merge: bool) -> Result<(), String> 
     // Внутренний tmp рядом со staging (не рядом с live dest).
     let tmp = dest.parent().unwrap_or(dest).join(format!(
         ".extracting-{}",
-        dest.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("rt")
+        dest.file_name().and_then(|n| n.to_str()).unwrap_or("rt")
     ));
     if tmp.exists() {
         let _ = std::fs::remove_dir_all(&tmp);
@@ -573,10 +590,7 @@ fn extract_zip(zip_path: &Path, dest: &Path, merge: bool) -> Result<(), String> 
 /// Старая live уходит в `*.bak`, при ошибке rename — восстанавливается.
 fn swap_staging_into_live(staging: &Path, live: &Path) -> Result<(), String> {
     if !staging.is_dir() {
-        return Err(format!(
-            "Staging-папка не найдена: {}",
-            staging.display()
-        ));
+        return Err(format!("Staging-папка не найдена: {}", staging.display()));
     }
     let parent = live
         .parent()
@@ -627,8 +641,12 @@ fn smoke_test_server(dir: &Path) -> Result<(), String> {
     }
     let meta = std::fs::metadata(&exe)
         .map_err(|e| format!("Не удалось прочитать llama-server.exe: {e}"))?;
-    if meta.len() < 100_000 {
-        return Err("llama-server.exe подозрительно мал — архив повреждён?".into());
+    // Современные сборки llama.cpp — тонкий exe-загрузчик (~9 КБ) + отдельная
+    // llama-server-impl.dll с основной логикой, так что монолитный размер exe
+    // ничего не говорит о целостности. Проверяем только «не пустой файл» —
+    // реальная проверка целостности ниже: реальный запуск `--version`.
+    if meta.len() == 0 {
+        return Err("llama-server.exe пустой (0 байт) — архив повреждён или распаковка не завершилась.".into());
     }
 
     let mut cmd = Command::new(&exe);
@@ -649,9 +667,11 @@ fn smoke_test_server(dir: &Path) -> Result<(), String> {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
             if stdout.trim().is_empty() && stderr.trim().is_empty() && !out.status.success() {
-                return Err(
-                    "llama-server.exe не отвечает на --version. Установка отклонена.".into(),
-                );
+                return Err(format!(
+                    "llama-server.exe не отвечает на --version (размер файла: {} байт, код выхода: {}). Установка отклонена.",
+                    meta.len(),
+                    out.status.code().map_or_else(|| "unknown".to_string(), |c| c.to_string())
+                ));
             }
             Ok(())
         }
@@ -745,7 +765,9 @@ fn find_existing_install() -> Option<(PathBuf, String, String)> {
         if !root.is_dir() {
             continue;
         }
-        let Ok(tags) = std::fs::read_dir(&root) else { continue };
+        let Ok(tags) = std::fs::read_dir(&root) else {
+            continue;
+        };
         for tag_ent in tags.flatten() {
             if !tag_ent.path().is_dir() {
                 continue;
@@ -755,7 +777,9 @@ fn find_existing_install() -> Option<(PathBuf, String, String)> {
                 continue;
             }
             let tag_name = tag_ent.file_name().to_string_lossy().to_string();
-            let Ok(backends) = std::fs::read_dir(tag_ent.path()) else { continue };
+            let Ok(backends) = std::fs::read_dir(tag_ent.path()) else {
+                continue;
+            };
             for be in backends.flatten() {
                 let dir = be.path();
                 if !is_installed_at(&dir) {
@@ -817,6 +841,62 @@ fn build_status() -> Result<RuntimeStatus, String> {
     })
 }
 
+/// Цепочка отката для авто-установки: от рекомендованного backend'а вниз
+/// к менее требовательным. Если CUDA-архив скачался, но smoke-test не прошёл
+/// (нет DLL, старый драйвер, битый бинарник) — не оставляем пользователя
+/// с голой ошибкой, а пробуем Vulkan, затем CPU.
+fn fallback_chain(recommended: RuntimeBackend) -> Vec<RuntimeBackend> {
+    match recommended {
+        RuntimeBackend::Cuda12 => vec![
+            RuntimeBackend::Cuda12,
+            RuntimeBackend::Vulkan,
+            RuntimeBackend::Cpu,
+        ],
+        RuntimeBackend::Vulkan => vec![RuntimeBackend::Vulkan, RuntimeBackend::Cpu],
+        RuntimeBackend::Cpu => vec![RuntimeBackend::Cpu],
+    }
+}
+
+/// Установка с авто-откатом backend'а. Откат применяется, только если backend
+/// не был явно выбран пользователем (`backend_override == None`) — явный выбор
+/// (напр. CUDA в Settings) молча не подменяем, только сообщаем об ошибке.
+async fn install_with_fallback(
+    app: &AppHandle,
+    state: &RuntimeInstallState,
+    backend_override: Option<RuntimeBackend>,
+) -> Result<RuntimeStatus, DlErr> {
+    let Some(explicit) = backend_override else {
+        let chain = fallback_chain(recommend_backend());
+        let mut last_err: Option<String> = None;
+        for (i, backend) in chain.iter().enumerate() {
+            if state.cancel.load(Ordering::SeqCst) {
+                return Err(DlErr::Canceled);
+            }
+            if i > 0 {
+                emit(
+                    app,
+                    "Пробую другой backend…",
+                    backend.label_ru(),
+                    0,
+                    0,
+                    false,
+                    None,
+                    false,
+                );
+            }
+            match install_impl(app, state, Some(backend.clone())).await {
+                Ok(st) => return Ok(st),
+                Err(DlErr::Canceled) => return Err(DlErr::Canceled),
+                Err(DlErr::Failed(msg)) => last_err = Some(msg),
+            }
+        }
+        return Err(DlErr::Failed(
+            last_err.unwrap_or_else(|| "Не удалось установить движок.".into()),
+        ));
+    };
+    install_impl(app, state, Some(explicit)).await
+}
+
 async fn install_impl(
     app: &AppHandle,
     state: &RuntimeInstallState,
@@ -838,9 +918,7 @@ async fn install_impl(
     // Создаём portable-папки.
     let models = default_models_dir().map_err(DlErr::Failed)?;
     ensure_dir(&models).map_err(DlErr::Failed)?;
-    let cache = runtime_root()
-        .map_err(DlErr::Failed)?
-        .join(".cache");
+    let cache = runtime_root().map_err(DlErr::Failed)?.join(".cache");
     ensure_dir(&cache).map_err(DlErr::Failed)?;
 
     let release = fetch_pinned_release().await.map_err(DlErr::Failed)?;
@@ -853,8 +931,7 @@ async fn install_impl(
     };
 
     // Оценка места: zip'ы * 2 (распаковка + staging) + запас.
-    let need = main_asset.size
-        + cudart_asset.map(|a| a.size).unwrap_or(0);
+    let need = main_asset.size + cudart_asset.map(|a| a.size).unwrap_or(0);
     let need = need.saturating_mul(3);
     if let Some(free) = free_space_bytes(&runtime_root().map_err(DlErr::Failed)?) {
         if free < need {
@@ -889,7 +966,16 @@ async fn install_impl(
         &main_name,
     )
     .await?;
-    emit(app, "Проверяю целостность…", &main_name, 0, 0, false, None, false);
+    emit(
+        app,
+        "Проверяю целостность…",
+        &main_name,
+        0,
+        0,
+        false,
+        None,
+        false,
+    );
     let main_zip_c = main_zip.clone();
     let main_name_c = main_name.clone();
     tokio::task::spawn_blocking(move || verify_zip_digest(&main_zip_c, &main_name_c))
@@ -981,7 +1067,16 @@ async fn install_impl(
 
     write_meta(&staging, &tag, &backend).map_err(DlErr::Failed)?;
 
-    emit(app, "Проверяю запуск…", SERVER_EXE, 0, 0, false, None, false);
+    emit(
+        app,
+        "Проверяю запуск…",
+        SERVER_EXE,
+        0,
+        0,
+        false,
+        None,
+        false,
+    );
     let staging_c = staging.clone();
     tokio::task::spawn_blocking(move || smoke_test_server(&staging_c))
         .await
@@ -1034,8 +1129,8 @@ pub(crate) fn free_space_bytes(path: &Path) -> Option<u64> {
     // На Windows берём корень диска path.
     #[cfg(windows)]
     {
-        use std::os::windows::ffi::OsStrExt;
         use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
         // Пробуем через `fs2`-подобный хак: GetDiskFreeSpaceExW через windows crate
         // не подключали — используем PowerShell-free подход через kernel32.
         // Минимально: если path не существует, create parent.
@@ -1062,12 +1157,7 @@ pub(crate) fn free_space_bytes(path: &Path) -> Option<u64> {
             ) -> i32;
         }
         let ok = unsafe {
-            GetDiskFreeSpaceExW(
-                wide.as_ptr(),
-                &mut free_bytes,
-                &mut total,
-                &mut total_free,
-            )
+            GetDiskFreeSpaceExW(wide.as_ptr(), &mut free_bytes, &mut total, &mut total_free)
         };
         if ok != 0 {
             return Some(free_bytes);
@@ -1105,16 +1195,18 @@ pub async fn runtime_install(
     }
     state.cancel.store(false, Ordering::SeqCst);
 
-    let backend = match backend.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "auto")
+    let backend = match backend
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != "auto")
     {
-        Some(id) => Some(
-            RuntimeBackend::from_id(id)
-                .ok_or_else(|| format!("Неизвестный backend: {id}"))?,
-        ),
+        Some(id) => {
+            Some(RuntimeBackend::from_id(id).ok_or_else(|| format!("Неизвестный backend: {id}"))?)
+        }
         None => None,
     };
 
-    let result = install_impl(&app, &state, backend).await;
+    let result = install_with_fallback(&app, &state, backend).await;
     *state.lock_active() = false;
 
     match result {
@@ -1162,20 +1254,14 @@ mod tests {
                 "missing digest for {main}"
             );
             if let Some(c) = cudart {
-                assert!(
-                    pinned_digest_for(&c).is_some(),
-                    "missing digest for {c}"
-                );
+                assert!(pinned_digest_for(&c).is_some(), "missing digest for {c}");
             }
         }
     }
 
     #[test]
     fn verify_zip_digest_rejects_mismatch() {
-        let dir = std::env::temp_dir().join(format!(
-            "ll-sha-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("ll-sha-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("llama-b9963-bin-win-cpu-x64.zip");
@@ -1221,5 +1307,90 @@ mod tests {
         assert_eq!(content, "new");
         assert!(!staging.exists());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // ── Реальный pipeline на pinned-архивах llama.cpp ───────────────────────
+    //
+    // Не гоняются по умолчанию (сеть, десятки-сотни МБ на кейс): `cargo test -- --ignored`.
+    // Проверяют честный путь release metadata → download → sha256 → extract → smoke test,
+    // на настоящих файлах, а не моках. CUDA-кейс подтверждает, что архив скачивается,
+    // хэш совпадает, `llama-server.exe` находится и отвечает на `--version` — но НЕ
+    // подтверждает загрузку CUDA-ядер (для этого нужен реальный NVIDIA GPU, которого
+    // на CI-раннере нет).
+
+    async fn download_to(url: &str, dest: &Path) {
+        let resp = client()
+            .expect("http client")
+            .get(url)
+            .send()
+            .await
+            .expect("download request failed");
+        let bytes = resp.bytes().await.expect("download body failed");
+        std::fs::write(dest, &bytes).expect("write downloaded zip");
+    }
+
+    fn run_real_pipeline(backend: RuntimeBackend) {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let tag = PINNED_TAG;
+            let release = fetch_pinned_release()
+                .await
+                .expect("fetch pinned release metadata");
+            let (main_name, cudart_name) = asset_names(tag, &backend);
+
+            let dir = std::env::temp_dir().join(format!(
+                "ll-pipeline-test-{}-{}",
+                backend.id(),
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+
+            let main_asset =
+                find_asset(&release, &main_name).expect("main asset present in pinned release");
+            let main_zip = dir.join(&main_name);
+            download_to(&main_asset.browser_download_url, &main_zip).await;
+            verify_zip_digest(&main_zip, &main_name)
+                .expect("main zip sha256 matches pinned digest");
+
+            let dest = dir.join("install");
+            extract_zip(&main_zip, &dest, false).expect("extract main zip");
+
+            if let Some(cudart_name) = cudart_name {
+                let cudart_asset = find_asset(&release, &cudart_name)
+                    .expect("cudart asset present in pinned release");
+                let cudart_zip = dir.join(&cudart_name);
+                download_to(&cudart_asset.browser_download_url, &cudart_zip).await;
+                verify_zip_digest(&cudart_zip, &cudart_name)
+                    .expect("cudart zip sha256 matches pinned digest");
+                extract_zip(&cudart_zip, &dest, true).expect("merge cudart into install dir");
+            }
+
+            assert!(
+                is_installed_at(&dest),
+                "llama-server.exe not found after extraction"
+            );
+            smoke_test_server(&dest).expect("llama-server.exe --version smoke test failed");
+
+            let _ = std::fs::remove_dir_all(&dir);
+        });
+    }
+
+    #[test]
+    #[ignore = "network: downloads real pinned CPU archive"]
+    fn real_pipeline_cpu() {
+        run_real_pipeline(RuntimeBackend::Cpu);
+    }
+
+    #[test]
+    #[ignore = "network: downloads real pinned Vulkan archive"]
+    fn real_pipeline_vulkan() {
+        run_real_pipeline(RuntimeBackend::Vulkan);
+    }
+
+    #[test]
+    #[ignore = "network: downloads real pinned CUDA + cudart archives (~300MB+)"]
+    fn real_pipeline_cuda() {
+        run_real_pipeline(RuntimeBackend::Cuda12);
     }
 }

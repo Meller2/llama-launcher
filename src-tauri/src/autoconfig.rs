@@ -113,8 +113,7 @@ fn fit_memory(
                         continue;
                     }
                     // Без меты: model + ~512 MiB KV на каждые 4k ctx.
-                    let rough_kv =
-                        ((ctx as u64).div_ceil(4096)).saturating_mul(512 * 1024 * 1024);
+                    let rough_kv = ((ctx as u64).div_ceil(4096)).saturating_mul(512 * 1024 * 1024);
                     let total = model_size.saturating_add(rough_kv);
                     if total <= budget {
                         return Some((ctx, quant, total));
@@ -249,13 +248,10 @@ fn compute(model_size: u64, meta: &GgufMeta, hw: &HardwareInfo) -> AutoConfig {
 
     // 3) Частичный оффлоад: сколько слоёв влезет (оценка равномерная — осторожно).
     let part_ctx = CTX_MIN;
-    if let (Some(n_layers), Some(per_tok_all)) =
-        (meta.n_layers, kv_bytes_per_token(meta, "q4_0"))
-    {
+    if let (Some(n_layers), Some(per_tok_all)) = (meta.n_layers, kv_bytes_per_token(meta, "q4_0")) {
         if n_layers > 0 {
             let per_layer_weight = model_size / n_layers as u64;
-            let per_layer_kv =
-                (per_tok_all / n_layers as u64).saturating_mul(part_ctx as u64);
+            let per_layer_kv = (per_tok_all / n_layers as u64).saturating_mul(part_ctx as u64);
             let per_layer = (per_layer_weight + per_layer_kv).max(1);
             // Safety: чуть меньше слоёв, чем «влезает ровно».
             let fit = ((usable as f64 * 0.95) / per_layer as f64).floor() as u32;
@@ -303,7 +299,8 @@ fn compute(model_size: u64, meta: &GgufMeta, hw: &HardwareInfo) -> AutoConfig {
             threads,
             est_vram_bytes: model_size,
             full_offload: true,
-            rationale: "Метаданные неполные — по размеру файла модель помещается в VRAM (ngl=999).".into(),
+            rationale: "Метаданные неполные — по размеру файла модель помещается в VRAM (ngl=999)."
+                .into(),
         };
     }
 
@@ -334,7 +331,10 @@ mod phase3 {
             None => eprintln!("GPU: не обнаружена"),
         }
         eprintln!("RAM: {}", super::fmt_gb(hw.total_ram_bytes));
-        eprintln!("CPU: {} физ. / {} лог.", hw.physical_cores, hw.logical_cores);
+        eprintln!(
+            "CPU: {} физ. / {} лог.",
+            hw.physical_cores, hw.logical_cores
+        );
 
         let folders = vec!["F:\\programs\\lm studio models".to_string()];
         let models = crate::models::scan_models(folders);

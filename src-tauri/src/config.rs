@@ -140,8 +140,7 @@ pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
 
     // Путь свободен (первый save) — обычный rename.
     if !path.exists() {
-        std::fs::rename(&tmp, &path)
-            .map_err(|e| format!("Не удалось сохранить настройки: {e}"))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("Не удалось сохранить настройки: {e}"))?;
         return Ok(());
     }
 

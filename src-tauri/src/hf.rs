@@ -125,10 +125,7 @@ fn part_key_hex(repo: &str, file: &str) -> String {
     h.update([0u8]);
     h.update(file.as_bytes());
     let dig = h.finalize();
-    dig.iter()
-        .take(6)
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    dig.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
 /// `{basename}.{hash12}.part` — уникально на (repo, path), итог rename → basename.
@@ -271,7 +268,9 @@ pub async fn hf_download(
 
     // Место на диске (остаток = expected − already + margin).
     if let Some(total) = expected_size {
-        let need = total.saturating_sub(resume_from).saturating_add(DISK_MARGIN);
+        let need = total
+            .saturating_sub(resume_from)
+            .saturating_add(DISK_MARGIN);
         if let Some(free) = crate::runtime::free_space_bytes(&dir) {
             if free < need {
                 return Err(format!(
@@ -293,11 +292,7 @@ pub async fn hf_download(
     }
     state.cancel.store(false, Ordering::SeqCst);
 
-    let encoded_file: String = file
-        .split('/')
-        .map(urlencode)
-        .collect::<Vec<_>>()
-        .join("/");
+    let encoded_file: String = file.split('/').map(urlencode).collect::<Vec<_>>().join("/");
     let url = format!(
         "{HF}/{}/resolve/main/{encoded_file}",
         urlencode_path_repo(&repo)
@@ -331,10 +326,7 @@ pub async fn hf_download(
 
 /// Кодирует owner/name репо (слэш оставляем).
 fn urlencode_path_repo(repo: &str) -> String {
-    repo.split('/')
-        .map(urlencode)
-        .collect::<Vec<_>>()
-        .join("/")
+    repo.split('/').map(urlencode).collect::<Vec<_>>().join("/")
 }
 
 /// Отменить текущую загрузку (флаг подхватится в цикле стриминга).
@@ -493,10 +485,7 @@ mod tests {
 
     #[test]
     fn content_range_start_parses() {
-        assert_eq!(
-            content_range_start("bytes 1000-1999/5000"),
-            Some(1000)
-        );
+        assert_eq!(content_range_start("bytes 1000-1999/5000"), Some(1000));
         assert_eq!(content_range_start("bytes 0-99/*"), Some(0));
         assert_eq!(content_range_start("invalid"), None);
     }

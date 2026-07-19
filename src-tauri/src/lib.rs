@@ -3,6 +3,7 @@
 
 mod autoconfig;
 mod config;
+mod diagnostics;
 mod hardware;
 mod hf;
 mod models;
@@ -48,6 +49,7 @@ pub fn run() {
             runtime::runtime_install,
             runtime::runtime_cancel_install,
             runtime::ensure_default_models_dir,
+            diagnostics::diagnostic_report,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

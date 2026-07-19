@@ -295,7 +295,7 @@ pub fn scan_models(folders: Vec<String>) -> Vec<ModelInfo> {
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out.dedup_by(|a, b| a.path == b.path);
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|m| m.name.to_lowercase());
     out
 }
 
@@ -305,6 +305,7 @@ mod scan_tests {
     use std::io::Write;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn part_key_stable_and_distinct() {
         // part_key живёт в hf — здесь только scan limits sanity.
         assert!(SCAN_MAX_DEPTH >= 4);
@@ -368,11 +369,7 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(dir)
             .spawn()
-            .or_else(|_| {
-                std::process::Command::new("open")
-                    .arg(dir)
-                    .spawn()
-            })
+            .or_else(|_| std::process::Command::new("open").arg(dir).spawn())
             .map_err(|e| format!("Не удалось открыть папку: {e}"))?;
         Ok(())
     }

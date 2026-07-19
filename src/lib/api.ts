@@ -234,6 +234,51 @@ export const ensureDefaultModelsDir = (): Promise<string> =>
 /** Открыть URL во внешнем браузере. */
 export const openExternal = (url: string): Promise<void> => openUrl(url);
 
+// ── Диагностика ───────────────────────────────────────────────────────────────
+
+export interface DiagnosticReport {
+  app_version: string;
+  os: string;
+  arch: string;
+  gpu_name: string | null;
+  vram_bytes: number;
+  total_ram_bytes: number;
+  logical_cores: number;
+  runtime_installed: boolean;
+  runtime_tag: string | null;
+  runtime_backend: string | null;
+  runtime_dir: string | null;
+  app_dir: string;
+  default_models_dir: string;
+  free_disk_bytes: number | null;
+  server_running: boolean;
+  server_ready: boolean;
+  server_port: number | null;
+  server_model: string | null;
+  last_exit_code: number | null;
+}
+
+export const getDiagnosticReport = (): Promise<DiagnosticReport> =>
+  invoke("diagnostic_report");
+
+/** Человеко-читаемый multi-line отчёт — для копирования в буфер обмена / issue. */
+export function formatDiagnosticReport(r: DiagnosticReport): string {
+  const lines = [
+    `LlamaLauncher ${r.app_version} (${r.os}/${r.arch})`,
+    `GPU: ${r.gpu_name ?? "—"}${r.vram_bytes ? ` · VRAM ${formatBytes(r.vram_bytes)}` : ""}`,
+    `RAM: ${formatBytes(r.total_ram_bytes)} · CPU: ${r.logical_cores} потоков`,
+    `Runtime: ${r.runtime_installed ? `${r.runtime_tag ?? "?"} · ${r.runtime_backend ?? "?"}` : "не установлен"}`,
+    `Runtime dir: ${r.runtime_dir ?? "—"}`,
+    `App dir: ${r.app_dir}`,
+    `Models dir: ${r.default_models_dir}`,
+    `Free disk: ${r.free_disk_bytes != null ? formatBytes(r.free_disk_bytes) : "—"}`,
+    `Server: ${r.server_running ? (r.server_ready ? "running/ready" : "running/starting") : "stopped"}${r.server_port ? ` · port ${r.server_port}` : ""}`,
+    `Model: ${r.server_model ?? "—"}`,
+    `Last exit code: ${r.last_exit_code ?? "—"}`,
+  ];
+  return lines.join("\n");
+}
+
 // ── Диалог выбора папки ──────────────────────────────────────────────────────
 
 /** Открыть системный диалог выбора папки. null если отменили. */

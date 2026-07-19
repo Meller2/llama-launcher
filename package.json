@@ -1,6 +1,6 @@
 {
   "name": "llama-launcher",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Portable desktop launcher for llama.cpp",
   "type": "module",
   "scripts": {
@@ -12,6 +12,12 @@
     "tauri": "tauri"
   },
   "license": "MIT",
+  "author": "Meller2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Meller2/llama-launcher.git"
+  },
+  "homepage": "https://github.com/Meller2/llama-launcher",
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Раз в неделю — тянет реальные pinned-архивы llama.cpp (~500МБ+), поэтому не на каждый push.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - run: npm run check
+
+      - run: npm run build
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+        working-directory: src-tauri
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: cargo test
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: tauri build (NSIS)
+        run: npm run tauri build -- --bundles nsis
+
+  runtime-integration:
+    # Реальный pinned CUDA/Vulkan/CPU pipeline (download → sha256 → extract → smoke test).
+    # Не на каждый push: качает полноразмерные релизные архивы llama.cpp.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: runtime pipeline integration test
+        run: cargo test --lib runtime::tests::real_pipeline -- --ignored --test-threads=1
+        working-directory: src-tauri

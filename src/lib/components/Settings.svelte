@@ -8,9 +8,13 @@
     runtimeInstall,
     runtimeCancelInstall,
     formatBytes,
+    getDiagnosticReport,
+    formatDiagnosticReport,
+    revealInFolder,
     type Settings,
     type RuntimeStatus,
     type RuntimeProgress,
+    type DiagnosticReport,
   } from "$lib/api";
   import { prefs } from "$lib/prefs.svelte";
   import type { Expertise, Locale } from "$lib/i18n";
@@ -46,6 +50,7 @@
     }
   }
   loadRt();
+  loadDiag();
 
   async function checkLlama() {
     if (!draft.llama_dir) { llamaValid = false; return; }
@@ -106,6 +111,28 @@
 
   async function cancelInstall() {
     await runtimeCancelInstall();
+  }
+
+  let diag = $state<DiagnosticReport | null>(null);
+  let diagCopied = $state(false);
+
+  async function loadDiag() {
+    try {
+      diag = await getDiagnosticReport();
+    } catch {
+      diag = null;
+    }
+  }
+
+  async function copyDiag() {
+    if (!diag) return;
+    await navigator.clipboard.writeText(formatDiagnosticReport(diag));
+    diagCopied = true;
+    setTimeout(() => (diagCopied = false), 1800);
+  }
+
+  async function openDataDir() {
+    if (diag?.app_dir) await revealInFolder(diag.app_dir);
   }
 
   async function save() {
@@ -269,6 +296,25 @@
     <button class="btn add" onclick={addFolder}>+ {prefs.t("set.folders.add")}</button>
   </div>
 
+  {#if prefs.showPowerPaths}
+    <div class="glass block">
+      <span class="lbl">{prefs.t("set.diag")}</span>
+      <p class="hint muted">{prefs.t("set.diag.hint")}</p>
+      {#if diag}
+        <pre class="diag-report">{formatDiagnosticReport(diag)}</pre>
+      {/if}
+      <div class="diag-actions">
+        <button class="btn" onclick={copyDiag} disabled={!diag}>
+          {diagCopied ? `✓ ${prefs.t("set.diag.copied")}` : prefs.t("set.diag.copy")}
+        </button>
+        <button class="btn" onclick={openDataDir} disabled={!diag?.app_dir}>
+          {prefs.t("set.diag.open_dir")}
+        </button>
+        <button class="btn tiny" onclick={loadDiag}>{prefs.t("set.diag.refresh")}</button>
+      </div>
+    </div>
+  {/if}
+
   {#if prefs.showAdvanced}
     <div class="glass block">
       <span class="lbl">{prefs.t("set.launch")}</span>
@@ -418,6 +464,12 @@
   .check { justify-content: flex-end; }
   .chk { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
   .chk input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .diag-report {
+    margin: 0; padding: 12px 14px; white-space: pre-wrap; word-break: break-all;
+    background: rgba(0,0,0,.22); border: 1px solid var(--border); border-radius: var(--radius-m);
+    font-family: var(--font-mono); font-size: 12px; color: var(--text-1); line-height: 1.5;
+  }
+  .diag-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .save-row { display: flex; align-items: center; gap: 14px; padding-bottom: 8px; }
   .saved-msg { color: var(--ok); font-size: 13px; }
 </style>

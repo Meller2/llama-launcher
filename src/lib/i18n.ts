@@ -250,6 +250,13 @@ const ru: Dict = {
   "set.checking": "Проверка…",
   "set.found": "llama-server.exe найден",
   "set.not_found": "llama-server.exe не найден",
+
+  "set.diag": "Диагностика",
+  "set.diag.hint": "Снимок состояния приложения — приложите к сообщению об ошибке.",
+  "set.diag.copy": "Скопировать отчёт",
+  "set.diag.copied": "Скопировано",
+  "set.diag.open_dir": "Открыть папку данных",
+  "set.diag.refresh": "Обновить",
 };
 
 const en: Dict = {
@@ -486,6 +493,13 @@ const en: Dict = {
   "set.checking": "Checking…",
   "set.found": "llama-server.exe found",
   "set.not_found": "llama-server.exe not found",
+
+  "set.diag": "Diagnostics",
+  "set.diag.hint": "A snapshot of app state — attach it to a bug report.",
+  "set.diag.copy": "Copy report",
+  "set.diag.copied": "Copied",
+  "set.diag.open_dir": "Open data folder",
+  "set.diag.refresh": "Refresh",
 };
 
 const TABLES: Record<Locale, Dict> = { ru, en };
