@@ -46,14 +46,16 @@ jobs:
         working-directory: src-tauri
 
       - name: tauri build (NSIS)
-        run: npm run tauri build -- --bundles nsis
+        # PR builds do not receive the release signing key.
+        run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.ci.conf.json
 
       - name: Prepare portable package
         shell: pwsh
         run: |
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          Copy-Item src-tauri/target/release/llama-launcher.exe release-assets/llama-launcher-v${{ github.ref_name }}-portable.exe
-          Compress-Archive -Path src-tauri/target/release/llama-launcher.exe -DestinationPath release-assets/llama-launcher-v${{ github.ref_name }}-portable.zip -Force
+          Copy-Item src-tauri/target/release/llama-launcher.exe "release-assets/llama-launcher-v$version-portable.exe"
+          Compress-Archive -Path src-tauri/target/release/llama-launcher.exe -DestinationPath "release-assets/llama-launcher-v$version-portable.zip" -Force
           Copy-Item src-tauri/target/release/bundle/nsis/*.exe release-assets/
 
       - name: Upload Windows release assets
