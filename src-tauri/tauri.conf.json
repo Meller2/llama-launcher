@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "llama-launcher",
-  "version": "0.3.8",
-  "identifier": "com.llamalauncher.app",
+  "productName": "ggflow",
+  "version": "0.4.0",
+  "identifier": "com.ggflow.app",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZGMzBEOEM3NUJGNUM0NzMKUldSenhQVmJ4OWd3YitHdWRzL2lLYWlONGsrOGRtcEhyeXVJaDBPdVkwNHZxK1pVU2VNOVlHRTEK",
@@ -20,7 +20,7 @@
   "app": {
     "windows": [
       {
-        "title": "LlamaLauncher",
+        "title": "GGFlow",
         "width": 1100,
         "height": 720,
         "minWidth": 920,

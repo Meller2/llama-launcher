@@ -317,7 +317,7 @@ export const wipeAppData = (options: WipeOptions): Promise<WipeResult> =>
 /** Человеко-читаемый multi-line отчёт — для копирования в буфер обмена / issue. */
 export function formatDiagnosticReport(r: DiagnosticReport): string {
   const lines = [
-    `LlamaLauncher ${r.app_version} (${r.os}/${r.arch})`,
+    `GGFlow ${r.app_version} (${r.os}/${r.arch})`,
     `GPU: ${r.gpu_name ?? "—"}${r.vram_bytes ? ` · VRAM ${formatBytes(r.vram_bytes)}` : ""}`,
     `RAM: ${formatBytes(r.total_ram_bytes)} · CPU: ${r.logical_cores} потоков`,
     `Runtime: ${r.runtime_installed ? `${r.runtime_tag ?? "?"} · ${r.runtime_backend ?? "?"}` : "не установлен"}`,

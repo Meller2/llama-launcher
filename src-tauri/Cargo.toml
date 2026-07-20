@@ -1,7 +1,7 @@
 [package]
-name = "llama-launcher"
-version = "0.3.8"
-description = "Desktop launcher for llama.cpp — download, auto-configure, and run local GGUF models"
+name = "ggflow"
+version = "0.4.0"
+description = "GGFlow — desktop launcher for llama.cpp (GGUF download, auto-config, one-click run)"
 authors = ["Meller2"]
 license = "MIT"
 repository = "https://github.com/Meller2/llama-launcher"
@@ -14,7 +14,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "llama_launcher_lib"
+name = "ggflow_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

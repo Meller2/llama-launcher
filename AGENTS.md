@@ -1,6 +1,6 @@
-# AGENTS.md — llama-launcher
+# AGENTS.md — GGFlow
 
-Desktop launcher for [llama.cpp](https://github.com/ggml-org/llama.cpp) (v0.3.6). Wraps `llama-server`: scans local GGUF models, downloads from Hugging Face, installs managed runtimes (CPU / Vulkan / CUDA 12.4), auto-configures launch flags for detected hardware, manages the server process lifecycle, and ships signed app updates.
+**GGFlow** (formerly llama-launcher) — desktop launcher for [llama.cpp](https://github.com/ggml-org/llama.cpp) (v0.4.0). Wraps `llama-server`: scans local GGUF models, downloads from Hugging Face, installs managed runtimes (CPU / Vulkan / CUDA 12.4), auto-configures launch flags for detected hardware, manages the server process lifecycle, and ships signed app updates.
 
 **Stack:** Tauri v2 (Rust) + SvelteKit (Svelte 5, TypeScript).  
 **Windows-first.** DXGI + `GlobalMemoryStatusEx` for hardware; `taskkill` / `CREATE_NO_WINDOW` for process control. Code comments are largely in Russian; UI is i18n (`ru` / `en`) with expertise levels (`beginner` / `intermediate` / `expert`).
@@ -86,7 +86,7 @@ Downloads a **pinned** llama.cpp release (`PINNED_TAG` + `PINNED_DIGESTS` SHA-25
 {app_dir}/models/   # default GGUF folder
 ```
 
-`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.llamalauncher.app\` (product id, no personal names). **True portable:** `settings.json`, `runtime/`, `models/` all under `app_dir`. Legacy Roaming/LocalAppData paths (`com.llamalauncher.app`, `com.ilzat.llama-launcher`) are scanned for runtime and one-shot settings migration. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`, `wipe_app_data`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
+`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.ggflow.app\` (`identifier`). **True portable:** `settings.json`, `runtime/`, `models/` all under `app_dir`. Legacy paths (`com.llamalauncher.app`, `com.ilzat.llama-launcher`) are scanned for runtime and one-shot settings migration. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`, `wipe_app_data`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
 
 ### Downloads (`hf.rs`)
 
@@ -114,9 +114,9 @@ Tag `v*.*.*` → `.github/workflows/release.yml` creates a **draft pre-release**
 
 | Asset | Purpose |
 |-------|---------|
-| `llama-launcher_<ver>_x64-setup.exe` (+ `.sig`) | NSIS installer (signed for updater) |
+| `ggflow_<ver>_x64-setup.exe` (+ `.sig`) | NSIS installer (signed for updater) |
 | `latest.json` | Updater manifest (not for humans) |
-| `llama-launcher-v<ver>-portable.exe` / `.zip` | Portable, no installer |
+| `ggflow-v<ver>-portable.exe` / `.zip` | Portable, no installer |
 
 Notes: default template `.github/release-notes.md` (`{{VERSION}}` / `{{VERSION_NUM}}`); optional per-tag override `.github/releases/vX.Y.Z.md`. After the draft is created, open it on GitHub, edit highlights if needed, then publish.
 

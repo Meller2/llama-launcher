@@ -96,7 +96,7 @@
   {#if loading}
     <div class="boot">
       <div class="boot-card">
-        <img class="logo-mark boot-mark" src="/logo1.png" alt="LlamaLauncher" />
+        <img class="logo-mark boot-mark" src="/logo1.png" alt="GGFlow" />
         <p class="boot-label">{prefs.t("app.name")}</p>
       </div>
     </div>

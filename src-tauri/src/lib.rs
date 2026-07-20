@@ -1,4 +1,4 @@
-// LlamaLauncher — Tauri backend.
+// GGFlow — Tauri backend (powered by llama.cpp).
 // Модули доменной логики: настройки, скан моделей, жизненный цикл сервера.
 
 mod autoconfig;

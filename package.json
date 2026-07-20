@@ -1,7 +1,7 @@
 {
-  "name": "llama-launcher",
-  "version": "0.3.8",
-  "description": "Portable desktop launcher for llama.cpp",
+  "name": "ggflow",
+  "version": "0.4.0",
+  "description": "GGFlow — portable desktop launcher for llama.cpp",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

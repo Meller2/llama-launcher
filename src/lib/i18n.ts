@@ -6,7 +6,7 @@ type Dict = Record<string, string>;
 
 const ru: Dict = {
   // App shell
-  "app.name": "LlamaLauncher",
+  "app.name": "GGFlow",
   "app.tagline": "Локальные нейросети в один клик",
   "app.tab.models": "Модели",
   "app.tab.catalog": "Каталог",
@@ -291,7 +291,7 @@ const ru: Dict = {
 };
 
 const en: Dict = {
-  "app.name": "LlamaLauncher",
+  "app.name": "GGFlow",
   "app.tagline": "Local neural nets in one click",
   "app.tab.models": "Models",
   "app.tab.catalog": "Catalog",

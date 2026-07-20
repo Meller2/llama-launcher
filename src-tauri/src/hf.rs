@@ -20,7 +20,7 @@ use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
 const HF: &str = "https://huggingface.co";
-const UA: &str = concat!("LlamaLauncher/", env!("CARGO_PKG_VERSION"));
+const UA: &str = concat!("GGFlow/", env!("CARGO_PKG_VERSION"));
 /// Не чаще одного события прогресса на ~2 МБ — чтобы не заваливать фронт.
 const EMIT_STEP: u64 = 2_000_000;
 /// Запас места на диске сверх размера файла (ФС / meta).

@@ -2,11 +2,11 @@
 //!
 //! Путь к settings.json = `runtime::app_dir()` (как runtime/models):
 //!   1) рядом с exe, если папка writable → **настоящий portable**;
-//!   2) иначе `%LOCALAPPDATA%/com.llamalauncher.app` (NSIS / Program Files).
+//!   2) иначе `%LOCALAPPDATA%/com.ggflow.app` (NSIS / Program Files).
 //!
 //! Старые пути (Tauri Roaming / legacy identifier) читаются один раз при миграции.
 
-use crate::runtime::{self, DATA_DIR_NAME, LEGACY_DATA_DIR_NAME};
+use crate::runtime::{self, DATA_DIR_NAME, LEGACY_DATA_DIR_NAMES};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
@@ -138,8 +138,10 @@ pub fn settings_search_paths() -> Vec<PathBuf> {
     if let Ok(exe) = runtime::exe_dir() {
         push(exe.join("settings.json"));
     }
-    // Прежний Tauri app_config_dir (Roaming + identifier).
-    for name in [DATA_DIR_NAME, LEGACY_DATA_DIR_NAME] {
+    // Текущий + legacy id (Roaming / LocalAppData).
+    let mut names: Vec<&str> = vec![DATA_DIR_NAME];
+    names.extend_from_slice(LEGACY_DATA_DIR_NAMES);
+    for name in names {
         if let Some(d) = roaming_dir(name) {
             push(d.join("settings.json"));
         }

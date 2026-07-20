@@ -28,7 +28,7 @@ use tokio::io::AsyncWriteExt;
 
 const GH: &str = "https://github.com/ggml-org/llama.cpp";
 const GH_API: &str = "https://api.github.com/repos/ggml-org/llama.cpp";
-const UA: &str = concat!("LlamaLauncher/", env!("CARGO_PKG_VERSION"));
+const UA: &str = concat!("GGFlow/", env!("CARGO_PKG_VERSION"));
 const EMIT_STEP: u64 = 2_000_000;
 const SERVER_EXE: &str = "llama-server.exe";
 
@@ -183,10 +183,10 @@ fn dir_is_writable(dir: &Path) -> bool {
 }
 
 /// Имя папки данных — совпадает с `tauri.conf.json` → `identifier`.
-/// Без личных имён: только product-id.
-pub const DATA_DIR_NAME: &str = "com.llamalauncher.app";
-/// Старый identifier (до 0.3.7): мигрируем/ищем runtime, но больше не пишем сюда.
-pub const LEGACY_DATA_DIR_NAME: &str = "com.ilzat.llama-launcher";
+pub const DATA_DIR_NAME: &str = "com.ggflow.app";
+/// Прежние identifier: ищем runtime/settings, но больше не пишем сюда.
+pub const LEGACY_DATA_DIR_NAMES: &[&str] =
+    &["com.llamalauncher.app", "com.ilzat.llama-launcher"];
 
 /// `%LOCALAPPDATA%/<name>` — fallback, когда рядом с exe писать нельзя (Program Files).
 fn local_data_dir(name: &str) -> Result<PathBuf, String> {
@@ -198,7 +198,7 @@ fn local_data_dir(name: &str) -> Result<PathBuf, String> {
 
 /// Корень данных приложения:
 /// 1) рядом с exe, если туда можно писать (portable / dev);
-/// 2) иначе `%LOCALAPPDATA%/com.llamalauncher.app` (NSIS в Program Files).
+/// 2) иначе `%LOCALAPPDATA%/com.ggflow.app` (NSIS в Program Files).
 pub fn app_dir() -> Result<PathBuf, String> {
     let beside = exe_dir()?;
     if dir_is_writable(&beside) {
@@ -327,7 +327,7 @@ async fn fetch_pinned_release() -> Result<GhRelease, String> {
         .map_err(|e| format!("Не удалось связаться с GitHub: {e}"))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(format!(
-            "Закреплённый релиз llama.cpp «{PINNED_TAG}» не найден на GitHub. Обновите LlamaLauncher."
+            "Закреплённый релиз llama.cpp «{PINNED_TAG}» не найден на GitHub. Обновите GGFlow."
         ));
     }
     if !resp.status().is_success() {
@@ -400,7 +400,7 @@ fn file_sha256_hex(path: &Path) -> Result<String, String> {
 fn verify_zip_digest(path: &Path, asset_name: &str) -> Result<(), String> {
     let expected = pinned_digest_for(asset_name).ok_or_else(|| {
         format!(
-            "Нет доверенного SHA-256 для «{asset_name}». Обновите LlamaLauncher (pinned digests)."
+            "Нет доверенного SHA-256 для «{asset_name}». Обновите GGFlow (pinned digests)."
         )
     })?;
     let got = file_sha256_hex(path)?;
@@ -797,11 +797,13 @@ fn find_existing_install() -> Option<(PathBuf, String, String)> {
             roots.push(beside);
         }
     }
-    // Старые установки до смены identifier.
-    if let Ok(legacy) = local_data_dir(LEGACY_DATA_DIR_NAME) {
-        let legacy_rt = legacy.join("runtime");
-        if !roots.iter().any(|r| r == &legacy_rt) {
-            roots.push(legacy_rt);
+    // Старые установки до смены identifier / ребренда.
+    for name in LEGACY_DATA_DIR_NAMES {
+        if let Ok(legacy) = local_data_dir(name) {
+            let legacy_rt = legacy.join("runtime");
+            if !roots.iter().any(|r| r == &legacy_rt) {
+                roots.push(legacy_rt);
+            }
         }
     }
     let mut best: Option<(PathBuf, String, String, std::time::SystemTime)> = None;
@@ -1107,7 +1109,7 @@ async fn install_impl(
     if !is_installed_at(&staging) {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(DlErr::Failed(
-            "После распаковки llama-server.exe не найден. Архив релиза изменился? Обновите LlamaLauncher.".into(),
+            "После распаковки llama-server.exe не найден. Архив релиза изменился? Обновите GGFlow.".into(),
         ));
     }
 

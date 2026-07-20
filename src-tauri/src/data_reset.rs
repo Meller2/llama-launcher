@@ -2,7 +2,7 @@
 //! Не удаляет саму программу (NSIS uninstall / portable-папка — отдельно).
 
 use crate::config::{self, Settings};
-use crate::runtime::{self, DATA_DIR_NAME, LEGACY_DATA_DIR_NAME};
+use crate::runtime::{self, DATA_DIR_NAME, LEGACY_DATA_DIR_NAMES};
 use crate::server::{self, ServerState};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -66,7 +66,9 @@ fn data_roots() -> Vec<PathBuf> {
             roots.push(exe);
         }
     }
-    for name in [DATA_DIR_NAME, LEGACY_DATA_DIR_NAME] {
+    let mut names: Vec<&str> = vec![DATA_DIR_NAME];
+    names.extend_from_slice(LEGACY_DATA_DIR_NAMES);
+    for name in names {
         if let Some(d) = local_appdata(name) {
             if !roots.iter().any(|r| r == &d) {
                 roots.push(d);

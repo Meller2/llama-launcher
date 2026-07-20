@@ -54,7 +54,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "LlamaLauncher ${{ github.ref_name }}"
+          releaseName: "GGFlow ${{ github.ref_name }}"
           # Placeholder — real markdown is written in the next step (notes-file).
           releaseBody: "Release draft — notes will be filled by the release workflow."
           releaseDraft: true
@@ -68,14 +68,14 @@ jobs:
         run: |
           $tag = "${{ steps.ver.outputs.tag }}"
           $num = "${{ steps.ver.outputs.num }}"
-          $exe = "src-tauri/target/release/llama-launcher.exe"
+          $exe = "src-tauri/target/release/ggflow.exe"
           if (-not (Test-Path $exe)) {
             throw "Missing release binary: $exe"
           }
 
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
-          $portableExe = "release-assets/llama-launcher-v$num-portable.exe"
-          $portableZip = "release-assets/llama-launcher-v$num-portable.zip"
+          $portableExe = "release-assets/ggflow-v$num-portable.exe"
+          $portableZip = "release-assets/ggflow-v$num-portable.zip"
           Copy-Item $exe $portableExe -Force
           if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
           Compress-Archive -Path $exe -DestinationPath $portableZip -Force
@@ -94,11 +94,11 @@ jobs:
           $num = "${{ steps.ver.outputs.num }}"
           $assets = gh release view $tag --json assets --jq ".assets[].name"
           $required = @(
-            "llama-launcher_${num}_x64-setup.exe"
-            "llama-launcher_${num}_x64-setup.exe.sig"
+            "ggflow_${num}_x64-setup.exe"
+            "ggflow_${num}_x64-setup.exe.sig"
             "latest.json"
-            "llama-launcher-v${num}-portable.exe"
-            "llama-launcher-v${num}-portable.zip"
+            "ggflow-v${num}-portable.exe"
+            "ggflow-v${num}-portable.zip"
           )
           $missing = $required | Where-Object { $_ -notin $assets }
           if ($missing) {
