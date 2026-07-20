@@ -1,21 +1,24 @@
 # AGENTS.md — llama-launcher
 
-Desktop launcher for [llama.cpp](https://github.com/ggml-org/llama.cpp). Wraps `llama-server`: scans local GGUF models, downloads from Hugging Face, installs managed runtimes, auto-configures launch flags for detected hardware, and manages the server process lifecycle.
+Desktop launcher for [llama.cpp](https://github.com/ggml-org/llama.cpp) (v0.3.6). Wraps `llama-server`: scans local GGUF models, downloads from Hugging Face, installs managed runtimes (CPU / Vulkan / CUDA 12.4), auto-configures launch flags for detected hardware, manages the server process lifecycle, and ships signed app updates.
 
 **Stack:** Tauri v2 (Rust) + SvelteKit (Svelte 5, TypeScript).  
-**Windows-first.** DXGI + `GlobalMemoryStatusEx` for hardware; `taskkill` / `CREATE_NO_WINDOW` for process control. Code comments are largely in Russian; UI is i18n (`ru` / `en`).
+**Windows-first.** DXGI + `GlobalMemoryStatusEx` for hardware; `taskkill` / `CREATE_NO_WINDOW` for process control. Code comments are largely in Russian; UI is i18n (`ru` / `en`) with expertise levels (`beginner` / `intermediate` / `expert`).
+
+**Plugins:** `dialog`, `opener`, `process`, `updater` (signed NSIS + auto-check on boot). Custom frameless window (`decorations: false`) with `Titlebar.svelte`.
 
 ## Commands
 
 ```bash
 npm install
 npm run tauri dev      # full app (Tauri window + Vite on :1420)
-npm run tauri build    # production bundle
+npm run tauri build    # production NSIS bundle (+ updater artifacts when signed)
 npm run check          # svelte-kit sync + svelte-check
 npm run dev            # frontend only — invoke() will fail without Tauri
 ```
 
-Rust (from `src-tauri/`): `cargo build`, `cargo clippy`. **No test suite.**
+Rust (from `src-tauri/`): `cargo build`, `cargo clippy`, `cargo test`, `cargo fmt --check`.  
+CI: `.github/workflows/ci.yml` (Windows: check/build/clippy/test/tauri; weekly/manual runtime integration against real pinned zips). Release: `.github/workflows/release.yml` on `v*.*.*` tags.
 
 ## Architecture
 
@@ -25,24 +28,26 @@ Three layers, kept in sync **by hand**:
 
    | Module | Role |
    |--------|------|
-   | `config` | Settings load/save (app config dir), `setup_version`, path validation |
-   | `models` | GGUF folder scan (depth≤8, max 5000, no symlinks) + metadata parse |
+   | `config` | Settings load/save (atomic tmp→bak→replace on Windows), `setup_version`, path validation |
+   | `models` | GGUF folder scan (depth≤8, max 5000, no symlinks) + metadata parse + `reveal_in_folder` |
    | `server` | `llama-server` lifecycle (start/stop/status, logs, readiness) |
    | `hardware` | VRAM/RAM/CPU detect (Windows DXGI; non-Windows nvidia-smi / meminfo) |
-   | `autoconfig` | Launch flags from hardware + GGUF meta |
+   | `autoconfig` | Launch flags from hardware + GGUF meta (VRAM/RAM-aware) |
    | `hf` | Hugging Face search + resumable download |
-   | `runtime` | Managed llama.cpp install (GitHub releases → portable `runtime/<tag>/<backend>/`) |
+   | `runtime` | Managed llama.cpp install (pinned GitHub release → portable `runtime/<tag>/<backend>/`) |
+   | `diagnostics` | Snapshot for bug reports (`diagnostic_report`) |
 
-2. **API layer** (`src/lib/api.ts`) — `invoke()` wrappers + TypeScript interfaces that **mirror Rust structs** (`Settings`, `LaunchConfig`, `ModelInfo`, `GgufMeta`, `ServerStatus`, `RuntimeStatus`, …). Changing a `#[derive(Serialize/Deserialize)]` struct in Rust **requires** updating the matching interface here or the boundary breaks silently.
+2. **API layer** (`src/lib/api.ts`) — `invoke()` wrappers + TypeScript interfaces that **mirror Rust structs** (`Settings`, `LaunchConfig`, `ModelInfo`, `GgufMeta`, `ServerStatus`, `RuntimeStatus`, `DiagnosticReport`, …). Changing a `#[derive(Serialize/Deserialize)]` struct in Rust **requires** updating the matching interface here or the boundary breaks silently. Also wraps plugin APIs: folder picker, external URLs, signed app update / relaunch.
 
 3. **UI** (`src/routes/+page.svelte` + `src/lib/components/`) — single SPA page, tabs: Модели / Каталог / Запущено / Настройки. SvelteKit `adapter-static` SPA mode (`fallback: index.html`); no SSR.
 
 Other frontend modules:
 
 - `src/lib/server.svelte.ts` — Svelte 5 runes store for server lifecycle events
-- `src/lib/prefs.svelte.ts` — locale / expertise / open-UI prefs applied from Settings
+- `src/lib/prefs.svelte.ts` — locale / expertise / open-UI prefs applied from Settings (gates advanced UI by expertise)
 - `src/lib/i18n.ts` — `ru` / `en` string dictionaries (`prefs.t(key)`)
-- Components: `LocalModels`, `Catalog`, `Running`, `Settings`, `Onboarding`
+- `src/lib/recommended.ts` — curated model list for beginners (categories + VRAM fit hints); refresh periodically
+- Components: `LocalModels`, `Catalog`, `Running`, `Settings`, `Onboarding`, `Titlebar`, `ContextMenu`, `Icon`
 
 ### Server lifecycle (event-driven)
 
@@ -51,11 +56,13 @@ Start/stop are commands; status returns via Tauri **events**, not command return
 | Event | Meaning |
 |-------|---------|
 | `server-log` | stdout/stderr line (buffer capped at 2000) |
-| `server-ready` | bound port; payload = port |
+| `server-ready` | model loaded / bound; payload = port |
 | `server-timeout` | not ready within `READY_TIMEOUT` (180s); process may still be alive |
 | `server-exit` | process ended; payload = exit code |
 
-Readiness: log watcher matches `"listening"` + port, plus TCP poll watchdog. `mark_ready` (one-shot `AtomicBool`) ensures `server-ready` fires at most once. Watcher/watchdog threads use a generation `id` so stale threads cannot clobber a newer launch.
+Other progress events (UI listens ad hoc): `download-progress`, `runtime-progress`, `models-changed` (after successful HF download).
+
+Readiness: log watcher matches `"listening"` + port, plus watchdog that polls HTTP `GET /health` (not bare TCP — avoids false ready on a foreign process). `mark_ready` (one-shot `AtomicBool`) ensures `server-ready` fires at most once. Watcher/watchdog threads use a generation `id` so stale threads cannot clobber a newer launch.
 
 - Non-zero exit after **manual** stop (`taskkill`) is expected — **not** an error; only self-crashes are.
 - `server::shutdown` runs on window `CloseRequested` so the child is not orphaned.
@@ -63,22 +70,22 @@ Readiness: log watcher matches `"listening"` + port, plus TCP poll watchdog. `ma
 
 ### Launch flags
 
-Defaults: `config::LaunchDefaults` (16k ctx, q4_0 KV, ngl 99, port 8080).  
-Mapping: `server::build_args` (`LaunchConfig` → CLI args).  
-Overrides: `autoconfig` from hardware + GGUF meta.
+Defaults: `config::LaunchDefaults` (16k ctx, q4_0 KV, ngl 99, port 8080, tools off).  
+Mapping: `server::build_args` (`LaunchConfig` → CLI args). Always passes host `127.0.0.1`, flash-attn on, jinja, batch sizes; optional `--tools all --ui-mcp-proxy`.  
+Overrides: `autoconfig` from hardware + GGUF meta (VRAM reserve ~1.5 GiB, RAM reserve ~3 GiB, ctx floor 2k–4k).
 
 When adding a launch parameter, update all three: `LaunchDefaults` / `LaunchConfig` (Rust) → `api.ts` → `build_args`.
 
 ### Managed runtime (`runtime.rs`)
 
-Downloads a **pinned** llama.cpp release (`PINNED_TAG` + `PINNED_DIGESTS` SHA-256 table — not `/releases/latest`). Flow: download → verify hash → extract to `*.staging` → smoke-test `llama-server --version` → atomic swap into live (old → `*.bak` → delete). Failed extract/smoke must not wipe a working install.
+Downloads a **pinned** llama.cpp release (`PINNED_TAG` + `PINNED_DIGESTS` SHA-256 table — not `/releases/latest`). Currently `b9963` (Windows x64 zips: cpu, vulkan, cuda-12.4, **plus** `cudart` zip for CUDA). Flow: download → verify hash → extract to `*.staging` (CUDA merges cudart DLLs) → smoke-test `llama-server --version` → atomic swap into live (old → `*.bak` → delete). Failed extract/smoke must not wipe a working install.
 
 ```
 {app_dir}/runtime/<tag>/<backend>/llama-server.exe
 {app_dir}/models/   # default GGUF folder
 ```
 
-`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.ilzat.llama-launcher\`. Backend pick: NVIDIA → CUDA, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`. When bumping the pin, update both `PINNED_TAG` and digests for all four Windows zip assets.
+`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.ilzat.llama-launcher\`. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
 
 ### Downloads (`hf.rs`)
 
@@ -86,32 +93,54 @@ Stream to keyed `{basename}.{hash12}.part` (hash of repo+path — no cross-repo 
 
 ### Settings forward-compat
 
-`Settings` and `LaunchDefaults` use `#[serde(default)]` at struct level so older config files deserialize field-by-field (missing fields get defaults) instead of wiping the whole file. Keep this when adding fields.
+`Settings` and `LaunchDefaults` use `#[serde(default)]` at struct level so older config files deserialize field-by-field (missing fields get defaults) instead of wiping the whole file. Keep this when adding fields. Save is Windows-safe: write `.json.tmp` → move old → `.json.bak` → rename tmp → target (POSIX `rename` overwrite does not apply on Windows).
 
-`setup_version` / `CURRENT_SETUP_VERSION` (api.ts) gate the onboarding wizard; bump both when the wizard shape changes.
+`setup_version` / `CURRENT_SETUP_VERSION` (api.ts) gate the onboarding wizard; bump both when the wizard shape changes. Fields: `locale`, `expertise`, `open_ui_on_ready`, managed-runtime tag/backend.
 
 ### Hardware detection
 
 `hardware.rs`: `#[cfg(windows)]` DXGI + `GlobalMemoryStatusEx`; `#[cfg(not(windows))]` nvidia-smi / `/proc/meminfo` or `sysctl`. Non-NVIDIA GPUs off Windows fall back toward CPU mode.
+
+### App updates & GitHub Releases
+
+Tauri updater plugin: pubkey + endpoint `…/releases/latest/download/latest.json` in `tauri.conf.json`. Boot path silently checks/installs (`checkAppUpdate` → `installAppUpdate` → relaunch). Release workflow signs with `TAURI_SIGNING_*` secrets. CI builds use `tauri.ci.conf.json` (no signing key on PRs).
+
+Tag `v*.*.*` → `.github/workflows/release.yml` creates a **draft pre-release** with:
+
+| Asset | Purpose |
+|-------|---------|
+| `llama-launcher_<ver>_x64-setup.exe` (+ `.sig`) | NSIS installer (signed for updater) |
+| `latest.json` | Updater manifest (not for humans) |
+| `llama-launcher-v<ver>-portable.exe` / `.zip` | Portable, no installer |
+
+Notes: default template `.github/release-notes.md` (`{{VERSION}}` / `{{VERSION_NUM}}`); optional per-tag override `.github/releases/vX.Y.Z.md`. After the draft is created, open it on GitHub, edit highlights if needed, then publish.
+
+### Diagnostics
+
+`diagnostics::diagnostic_report` aggregates app version, OS/arch, GPU/RAM, runtime paths, free disk, server state — for Settings “copy report” / bug reports (`formatDiagnosticReport` on the frontend).
 
 ## Conventions
 
 - Prefer small, focused diffs; match existing style (Russian comments in Rust/TS are fine).
 - New Tauri command → register in `lib.rs` → add TS wrapper + types in `api.ts` → wire UI.
 - Svelte 5 runes (`$state`, `$derived`, `.svelte.ts` stores) — not legacy stores for new code.
-- UI strings go through `i18n.ts` / `prefs.t()`, not hard-coded (except rare technical labels).
-- Do not add a test suite or refactor for its own sake unless asked.
+- UI strings go through `i18n.ts` / `prefs.t()`, not hard-coded (except rare technical labels). Respect expertise gates in `prefs.svelte.ts` when adding advanced controls.
+- Unit tests live next to modules (`#[cfg(test)]`); keep them for pure logic. Do not add a large frontend test suite or drive-by refactors unless asked.
 - Do not commit secrets, large GGUF binaries, or `src-tauri/target/` artifacts.
+- Bumping app version: `package.json` + `src-tauri/Cargo.toml` + `tauri.conf.json` (keep in sync).
 
 ## Key paths
 
 ```
 src-tauri/src/lib.rs          # command registration, window close → shutdown
 src-tauri/src/server.rs       # process spawn, readiness, events
-src-tauri/src/runtime.rs      # managed llama.cpp install
+src-tauri/src/runtime.rs      # managed llama.cpp install (PINNED_TAG / digests)
 src-tauri/src/config.rs       # Settings, LaunchDefaults, SETUP_VERSION
+src-tauri/src/diagnostics.rs  # diagnostic_report
 src/lib/api.ts                # IPC boundary (keep in sync with Rust)
 src/lib/server.svelte.ts      # frontend server state
-src/routes/+page.svelte       # shell + tabs + onboarding gate
+src/lib/recommended.ts        # curated catalog recommendations
+src/routes/+page.svelte       # shell + tabs + onboarding + auto-update
 src/lib/components/           # feature UI
+.github/workflows/            # ci.yml, release.yml
 ```

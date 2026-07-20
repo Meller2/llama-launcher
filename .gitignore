@@ -26,3 +26,9 @@ vite.config.ts.timestamp-*
 # Local MCP tool schemas (not part of the app)
 /mcps/
 
+
+# Local scratch (release notes prep, screenshots)
+.tmp-release/
+/photo*.jpg
+/photo*.png
+

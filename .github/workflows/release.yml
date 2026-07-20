@@ -22,6 +22,30 @@ jobs:
       - run: npm run check
       - run: npm run build
 
+      - name: Resolve version strings
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $num = $tag -replace '^v', ''
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "num=$num" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build release notes
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $num = "${{ steps.ver.outputs.num }}"
+          $tpl = Get-Content -Raw ".github/release-notes.md"
+          $body = $tpl.Replace("{{VERSION}}", $tag).Replace("{{VERSION_NUM}}", $num)
+          # Prefer a tag-specific notes file if present (e.g. .github/releases/v0.3.7.md)
+          $specific = ".github/releases/$tag.md"
+          if (Test-Path $specific) {
+            $body = Get-Content -Raw $specific
+          }
+          # Write without BOM so gh/markdown stays clean
+          [System.IO.File]::WriteAllText("$pwd/release-body.md", $body)
+
       - name: Build and publish signed Tauri update
         uses: tauri-apps/tauri-action@v0
         env:
@@ -31,23 +55,54 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "LlamaLauncher ${{ github.ref_name }}"
-          releaseBody: "See the assets below for the Windows installer and signed updater packages."
+          # Placeholder — real markdown is written in the next step (notes-file).
+          releaseBody: "Release draft — notes will be filled by the release workflow."
           releaseDraft: true
           prerelease: true
           args: --bundles nsis
 
-      - name: Verify signed updater assets
+      - name: Attach portable packages + real release notes
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $assets = gh release view $env:GITHUB_REF_NAME --json assets --jq '.assets[].name'
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $num = "${{ steps.ver.outputs.num }}"
+          $exe = "src-tauri/target/release/llama-launcher.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Missing release binary: $exe"
+          }
+
+          New-Item -ItemType Directory -Force -Path release-assets | Out-Null
+          $portableExe = "release-assets/llama-launcher-v$num-portable.exe"
+          $portableZip = "release-assets/llama-launcher-v$num-portable.zip"
+          Copy-Item $exe $portableExe -Force
+          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
+          Compress-Archive -Path $exe -DestinationPath $portableZip -Force
+
+          # Replace the one-liner body from tauri-action with proper markdown
+          gh release edit $tag --notes-file release-body.md --draft=true --prerelease=true
+
+          gh release upload $tag $portableExe $portableZip --clobber
+
+      - name: Verify release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.ver.outputs.tag }}"
+          $num = "${{ steps.ver.outputs.num }}"
+          $assets = gh release view $tag --json assets --jq ".assets[].name"
           $required = @(
-            "llama-launcher_${{ github.ref_name }}_x64-setup.exe" -replace '_v', '_'
-            "llama-launcher_${{ github.ref_name }}_x64-setup.exe.sig" -replace '_v', '_'
+            "llama-launcher_${num}_x64-setup.exe"
+            "llama-launcher_${num}_x64-setup.exe.sig"
             "latest.json"
+            "llama-launcher-v${num}-portable.exe"
+            "llama-launcher-v${num}-portable.zip"
           )
           $missing = $required | Where-Object { $_ -notin $assets }
           if ($missing) {
-            throw "Release is missing signed updater assets: $($missing -join ', ')"
+            throw "Release is missing assets: $($missing -join ', ')`nPresent:`n$($assets -join "`n")"
           }
+          Write-Host "All required assets present:"
+          $required | ForEach-Object { Write-Host "  - $_" }
