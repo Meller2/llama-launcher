@@ -6,7 +6,7 @@ use crate::runtime::{self, DATA_DIR_NAME, LEGACY_DATA_DIR_NAME};
 use crate::server::{self, ServerState};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct WipeOptions {
@@ -53,10 +53,6 @@ fn remove_file_if_exists(path: &Path) -> Result<bool, String> {
 
 fn local_appdata(name: &str) -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(|b| PathBuf::from(b).join(name))
-}
-
-fn roaming_appdata(name: &str) -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|b| PathBuf::from(b).join(name))
 }
 
 /// Корни, где мог лежать managed runtime / models (текущий + portable + legacy).
@@ -114,26 +110,25 @@ fn wipe_cache(removed: &mut Vec<String>, errors: &mut Vec<String>) {
     }
 }
 
-fn wipe_settings_files(app: &AppHandle, removed: &mut Vec<String>, errors: &mut Vec<String>) {
-    // Текущий config dir (Tauri app_config_dir = identifier).
-    if let Ok(dir) = app.path().app_config_dir() {
+fn wipe_settings_files(removed: &mut Vec<String>, errors: &mut Vec<String>) {
+    // Канонический путь + все legacy (Roaming/LocalAppData/рядом с exe),
+    // иначе migrate_legacy снова подтянет хвосты после сброса.
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for p in config::settings_search_paths() {
+        if let Some(parent) = p.parent() {
+            let d = parent.to_path_buf();
+            if !dirs.iter().any(|x| x == &d) {
+                dirs.push(d);
+            }
+        }
+    }
+    for dir in dirs {
         for name in ["settings.json", "settings.json.bak", "settings.json.tmp"] {
             let p = dir.join(name);
             match remove_file_if_exists(&p) {
                 Ok(true) => removed.push(p.display().to_string()),
                 Ok(false) => {}
                 Err(e) => push_err(errors, "settings", e),
-            }
-        }
-    }
-    // Legacy config (старый identifier в Roaming).
-    if let Some(dir) = roaming_appdata(LEGACY_DATA_DIR_NAME) {
-        for name in ["settings.json", "settings.json.bak", "settings.json.tmp"] {
-            let p = dir.join(name);
-            match remove_file_if_exists(&p) {
-                Ok(true) => removed.push(p.display().to_string()),
-                Ok(false) => {}
-                Err(e) => push_err(errors, "settings(legacy)", e),
             }
         }
     }
@@ -171,14 +166,11 @@ pub fn wipe_app_data(
 
     let mut settings = config::load(&app);
     if options.settings {
-        wipe_settings_files(&app, &mut removed, &mut errors);
+        wipe_settings_files(&mut removed, &mut errors);
         settings = Settings::default();
-        // Сохраняем дефолт, чтобы путь config dir существовал и load() был стабилен.
+        // Пишем дефолт в канонический portable/installed path.
         if let Err(e) = config::save(&app, &settings) {
             push_err(&mut errors, "settings(save)", e);
-        } else if let Ok(p) = app.path().app_config_dir() {
-            // save создал settings.json — в removed уже могут быть старые; ок.
-            let _ = p;
         }
     } else if options.runtime {
         // Движок снесён, а настройки оставили — сбросить managed-поля.

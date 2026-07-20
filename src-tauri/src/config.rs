@@ -1,9 +1,15 @@
-//! Настройки приложения: структура Settings + load/save в app_config_dir.
-//! Портирует load_config/save_config из старого backend.py, но идиоматично на Rust.
+//! Настройки приложения: структура Settings + load/save.
+//!
+//! Путь к settings.json = `runtime::app_dir()` (как runtime/models):
+//!   1) рядом с exe, если папка writable → **настоящий portable**;
+//!   2) иначе `%LOCALAPPDATA%/com.llamalauncher.app` (NSIS / Program Files).
+//!
+//! Старые пути (Tauri Roaming / legacy identifier) читаются один раз при миграции.
 
+use crate::runtime::{self, DATA_DIR_NAME, LEGACY_DATA_DIR_NAME};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// Дефолты запуска модели (маппинг флагов из llama.bat).
 /// Пользователь может переопределить в UI; auto_config переопределит под железо.
@@ -97,49 +103,80 @@ impl Default for Settings {
     }
 }
 
-/// Путь к файлу настроек: <app_config_dir>/settings.json.
-fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("Не удалось определить папку конфигурации: {e}"))?;
-    Ok(dir.join("settings.json"))
+/// Каталог конфигурации = data root (portable-first).
+pub fn config_dir() -> Result<PathBuf, String> {
+    runtime::app_dir()
 }
 
-/// Старый путь настроек (identifier `com.ilzat.llama-launcher` → Roaming).
-fn legacy_settings_path() -> Option<PathBuf> {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from)?;
-    Some(
-        base.join(crate::runtime::LEGACY_DATA_DIR_NAME)
-            .join("settings.json"),
-    )
+/// Путь к файлу настроек: `{app_dir}/settings.json`.
+pub fn settings_path() -> Result<PathBuf, String> {
+    Ok(config_dir()?.join("settings.json"))
 }
 
-/// Одноразовая миграция settings.json со старого identifier на новый.
-/// Копируем, старый файл не трогаем (можно снести через «Сброс данных»).
-fn migrate_legacy_settings(app: &AppHandle) {
-    let Ok(new_path) = settings_path(app) else {
+fn roaming_dir(name: &str) -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|b| PathBuf::from(b).join(name))
+}
+
+fn local_dir(name: &str) -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|b| PathBuf::from(b).join(name))
+}
+
+/// Все известные места, где когда-либо мог лежать settings.json
+/// (текущий + миграции). Для wipe и one-shot migrate.
+pub fn settings_search_paths() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut push = |p: PathBuf| {
+        if !out.iter().any(|x| x == &p) {
+            out.push(p);
+        }
+    };
+
+    if let Ok(p) = settings_path() {
+        push(p);
+    }
+    // Рядом с exe — даже если app_dir ушёл в LocalAppData (на всякий).
+    if let Ok(exe) = runtime::exe_dir() {
+        push(exe.join("settings.json"));
+    }
+    // Прежний Tauri app_config_dir (Roaming + identifier).
+    for name in [DATA_DIR_NAME, LEGACY_DATA_DIR_NAME] {
+        if let Some(d) = roaming_dir(name) {
+            push(d.join("settings.json"));
+        }
+        if let Some(d) = local_dir(name) {
+            push(d.join("settings.json"));
+        }
+    }
+    out
+}
+
+/// Одноразовая миграция: если канонического settings.json нет —
+/// копируем из первого найденного legacy-пути.
+fn migrate_legacy_settings() {
+    let Ok(canonical) = settings_path() else {
         return;
     };
-    if new_path.exists() {
+    if canonical.is_file() {
         return;
     }
-    let Some(old_path) = legacy_settings_path() else {
-        return;
-    };
-    if !old_path.is_file() {
-        return;
+
+    for candidate in settings_search_paths() {
+        if candidate == canonical || !candidate.is_file() {
+            continue;
+        }
+        if let Some(parent) = canonical.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::copy(&candidate, &canonical).is_ok() {
+            return;
+        }
     }
-    if let Some(parent) = new_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::copy(&old_path, &new_path);
 }
 
 /// Чтение настроек. Если файла нет или он битый — возвращаем дефолт (не онбордед).
-pub fn load(app: &AppHandle) -> Settings {
-    migrate_legacy_settings(app);
-    let path = match settings_path(app) {
+pub fn load(_app: &AppHandle) -> Settings {
+    migrate_legacy_settings();
+    let path = match settings_path() {
         Ok(p) => p,
         Err(_) => return Settings::default(),
     };
@@ -155,8 +192,8 @@ pub fn load(app: &AppHandle) -> Settings {
 /// POSIX). Поэтому: пишем `.json.tmp`, сдвигаем старый `settings.json` в
 /// `.json.bak`, затем переименовываем tmp → target. При сбое rename
 /// восстанавливаем bak.
-pub fn save(app: &AppHandle, settings: &Settings) -> Result<(), String> {
-    let path = settings_path(app)?;
+pub fn save(_app: &AppHandle, settings: &Settings) -> Result<(), String> {
+    let path = settings_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Не удалось создать папку конфигурации: {e}"))?;

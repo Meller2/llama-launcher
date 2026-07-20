@@ -28,7 +28,7 @@ Three layers, kept in sync **by hand**:
 
    | Module | Role |
    |--------|------|
-   | `config` | Settings load/save (atomic tmp→bak→replace on Windows), `setup_version`, path validation |
+   | `config` | Settings load/save in `app_dir()` (portable-first; atomic tmp→bak→replace), legacy migrate, `setup_version` |
    | `models` | GGUF folder scan (depth≤8, max 5000, no symlinks) + metadata parse + `reveal_in_folder` |
    | `server` | `llama-server` lifecycle (start/stop/status, logs, readiness) |
    | `hardware` | VRAM/RAM/CPU detect (Windows DXGI; non-Windows nvidia-smi / meminfo) |
@@ -86,15 +86,19 @@ Downloads a **pinned** llama.cpp release (`PINNED_TAG` + `PINNED_DIGESTS` SHA-25
 {app_dir}/models/   # default GGUF folder
 ```
 
-`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.llamalauncher.app\` (Tauri `identifier`, no personal names). Legacy path `com.ilzat.llama-launcher` is still scanned for existing runtime and one-shot settings migration. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`, `wipe_app_data`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
+`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.llamalauncher.app\` (product id, no personal names). **True portable:** `settings.json`, `runtime/`, `models/` all under `app_dir`. Legacy Roaming/LocalAppData paths (`com.llamalauncher.app`, `com.ilzat.llama-launcher`) are scanned for runtime and one-shot settings migration. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`, `wipe_app_data`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
 
 ### Downloads (`hf.rs`)
 
 Stream to keyed `{basename}.{hash12}.part` (hash of repo+path — no cross-repo collisions), rename on success. Cancel/fail keeps `.part`; resume via HTTP `Range` (206 append + Content-Range start check; 200 = restart). Free-space check when `expected_size` known. Emits `models-changed` on success so LocalModels auto-refreshes. Connect timeout 20s; no total body timeout (large GGUF). Single-slot mutex.
 
-### Settings forward-compat
+### Settings (portable-first)
+
+Path: `{app_dir}/settings.json` via `runtime::app_dir()` — **same root as runtime/models**, not Tauri Roaming `app_config_dir`.
 
 `Settings` and `LaunchDefaults` use `#[serde(default)]` at struct level so older config files deserialize field-by-field (missing fields get defaults) instead of wiping the whole file. Keep this when adding fields. Save is Windows-safe: write `.json.tmp` → move old → `.json.bak` → rename tmp → target (POSIX `rename` overwrite does not apply on Windows).
+
+On first load, if canonical file is missing, copy from the first found legacy path (Roaming/LocalAppData current + old identifier). Wipe removes all known settings locations so migrate cannot resurrect them.
 
 `setup_version` / `CURRENT_SETUP_VERSION` (api.ts) gate the onboarding wizard; bump both when the wizard shape changes. Fields: `locale`, `expertise`, `open_ui_on_ready`, managed-runtime tag/backend.
 

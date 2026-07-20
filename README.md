@@ -15,12 +15,15 @@ Built with [Tauri](https://tauri.app/), [SvelteKit](https://svelte.dev/) and Typ
 
 ### Portable layout
 
-After auto-install, files prefer the folder next to the executable (true portable).
-If that folder is not writable (e.g. Program Files), data goes to
+When the folder next to the executable is writable (portable / USB / dev),
+**everything** lives there — settings, engine, models. Copy the folder and go.
+
+If that folder is not writable (e.g. Program Files install), data goes to
 `%LOCALAPPDATA%\com.llamalauncher.app\`:
 
 ```
-runtime/<tag>/<backend>/llama-server.exe   # managed engine
+settings.json                                # UI prefs, onboarding, paths
+runtime/<tag>/<backend>/llama-server.exe     # managed engine
 models/                                      # default GGUF folder
 ```
 
