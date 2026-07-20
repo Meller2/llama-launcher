@@ -46,7 +46,8 @@ jobs:
         working-directory: src-tauri
 
       - name: tauri build (NSIS)
-        run: npm run tauri build -- --bundles nsis
+        # PR builds do not receive the release signing key.
+        run: npm run tauri build -- --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Prepare portable package
         shell: pwsh
