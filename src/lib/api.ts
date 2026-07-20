@@ -295,6 +295,25 @@ export interface DiagnosticReport {
 export const getDiagnosticReport = (): Promise<DiagnosticReport> =>
   invoke("diagnostic_report");
 
+// ── Сброс данных ──────────────────────────────────────────────────────────────
+
+export interface WipeOptions {
+  settings: boolean;
+  runtime: boolean;
+  models: boolean;
+  cache: boolean;
+}
+
+export interface WipeResult {
+  removed: string[];
+  errors: string[];
+  settings: Settings;
+}
+
+/** Удалить выбранные данные приложения (не саму программу). */
+export const wipeAppData = (options: WipeOptions): Promise<WipeResult> =>
+  invoke("wipe_app_data", { options });
+
 /** Человеко-читаемый multi-line отчёт — для копирования в буфер обмена / issue. */
 export function formatDiagnosticReport(r: DiagnosticReport): string {
   const lines = [

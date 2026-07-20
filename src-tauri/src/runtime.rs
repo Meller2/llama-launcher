@@ -182,19 +182,30 @@ fn dir_is_writable(dir: &Path) -> bool {
     }
 }
 
+/// Имя папки данных — совпадает с `tauri.conf.json` → `identifier`.
+/// Без личных имён: только product-id.
+pub const DATA_DIR_NAME: &str = "com.llamalauncher.app";
+/// Старый identifier (до 0.3.7): мигрируем/ищем runtime, но больше не пишем сюда.
+pub const LEGACY_DATA_DIR_NAME: &str = "com.ilzat.llama-launcher";
+
+/// `%LOCALAPPDATA%/<name>` — fallback, когда рядом с exe писать нельзя (Program Files).
+fn local_data_dir(name: &str) -> Result<PathBuf, String> {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "Не удалось определить LOCALAPPDATA".to_string())?;
+    Ok(base.join(name))
+}
+
 /// Корень данных приложения:
 /// 1) рядом с exe, если туда можно писать (portable / dev);
-/// 2) иначе `%LOCALAPPDATA%/com.ilzat.llama-launcher` (MSI/NSIS в Program Files).
+/// 2) иначе `%LOCALAPPDATA%/com.llamalauncher.app` (NSIS в Program Files).
 pub fn app_dir() -> Result<PathBuf, String> {
     let beside = exe_dir()?;
     if dir_is_writable(&beside) {
         return Ok(beside);
     }
     // Fallback: локальные данные пользователя (не требует админа).
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .ok_or_else(|| "Не удалось определить LOCALAPPDATA".to_string())?;
-    let dir = base.join("com.ilzat.llama-launcher");
+    let dir = local_data_dir(DATA_DIR_NAME)?;
     ensure_dir(&dir)?;
     Ok(dir)
 }
@@ -773,7 +784,7 @@ fn write_meta(dir: &Path, tag: &str, backend: &RuntimeBackend) -> Result<(), Str
 }
 
 /// Найти уже установленный managed runtime (обход runtime/*/*).
-/// Смотрим и portable (рядом с exe), и fallback (LocalAppData).
+/// Смотрим portable (рядом с exe), текущий LocalAppData и legacy-папку.
 fn find_existing_install() -> Option<(PathBuf, String, String)> {
     let mut roots = Vec::new();
     if let Ok(r) = runtime_root() {
@@ -784,6 +795,13 @@ fn find_existing_install() -> Option<(PathBuf, String, String)> {
         let beside = exe.join("runtime");
         if !roots.iter().any(|r| r == &beside) {
             roots.push(beside);
+        }
+    }
+    // Старые установки до смены identifier.
+    if let Ok(legacy) = local_data_dir(LEGACY_DATA_DIR_NAME) {
+        let legacy_rt = legacy.join("runtime");
+        if !roots.iter().any(|r| r == &legacy_rt) {
+            roots.push(legacy_rt);
         }
     }
     let mut best: Option<(PathBuf, String, String, std::time::SystemTime)> = None;

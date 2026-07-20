@@ -106,8 +106,39 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
+/// Старый путь настроек (identifier `com.ilzat.llama-launcher` → Roaming).
+fn legacy_settings_path() -> Option<PathBuf> {
+    let base = std::env::var_os("APPDATA").map(PathBuf::from)?;
+    Some(
+        base.join(crate::runtime::LEGACY_DATA_DIR_NAME)
+            .join("settings.json"),
+    )
+}
+
+/// Одноразовая миграция settings.json со старого identifier на новый.
+/// Копируем, старый файл не трогаем (можно снести через «Сброс данных»).
+fn migrate_legacy_settings(app: &AppHandle) {
+    let Ok(new_path) = settings_path(app) else {
+        return;
+    };
+    if new_path.exists() {
+        return;
+    }
+    let Some(old_path) = legacy_settings_path() else {
+        return;
+    };
+    if !old_path.is_file() {
+        return;
+    }
+    if let Some(parent) = new_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::copy(&old_path, &new_path);
+}
+
 /// Чтение настроек. Если файла нет или он битый — возвращаем дефолт (не онбордед).
 pub fn load(app: &AppHandle) -> Settings {
+    migrate_legacy_settings(app);
     let path = match settings_path(app) {
         Ok(p) => p,
         Err(_) => return Settings::default(),

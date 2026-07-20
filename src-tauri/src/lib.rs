@@ -3,6 +3,7 @@
 
 mod autoconfig;
 mod config;
+mod data_reset;
 mod diagnostics;
 mod hardware;
 mod hf;
@@ -53,6 +54,7 @@ pub fn run() {
             runtime::runtime_cancel_install,
             runtime::ensure_default_models_dir,
             diagnostics::diagnostic_report,
+            data_reset::wipe_app_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

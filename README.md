@@ -17,7 +17,7 @@ Built with [Tauri](https://tauri.app/), [SvelteKit](https://svelte.dev/) and Typ
 
 After auto-install, files prefer the folder next to the executable (true portable).
 If that folder is not writable (e.g. Program Files), data goes to
-`%LOCALAPPDATA%\com.ilzat.llama-launcher\`:
+`%LOCALAPPDATA%\com.llamalauncher.app\`:
 
 ```
 runtime/<tag>/<backend>/llama-server.exe   # managed engine

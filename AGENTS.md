@@ -36,6 +36,7 @@ Three layers, kept in sync **by hand**:
    | `hf` | Hugging Face search + resumable download |
    | `runtime` | Managed llama.cpp install (pinned GitHub release → portable `runtime/<tag>/<backend>/`) |
    | `diagnostics` | Snapshot for bug reports (`diagnostic_report`) |
+   | `data_reset` | In-app wipe: runtime / default models / cache / settings (`wipe_app_data`) |
 
 2. **API layer** (`src/lib/api.ts`) — `invoke()` wrappers + TypeScript interfaces that **mirror Rust structs** (`Settings`, `LaunchConfig`, `ModelInfo`, `GgufMeta`, `ServerStatus`, `RuntimeStatus`, `DiagnosticReport`, …). Changing a `#[derive(Serialize/Deserialize)]` struct in Rust **requires** updating the matching interface here or the boundary breaks silently. Also wraps plugin APIs: folder picker, external URLs, signed app update / relaunch.
 
@@ -85,7 +86,7 @@ Downloads a **pinned** llama.cpp release (`PINNED_TAG` + `PINNED_DIGESTS` SHA-25
 {app_dir}/models/   # default GGUF folder
 ```
 
-`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.ilzat.llama-launcher\`. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
+`app_dir` = folder next to the executable if writable; else `%LOCALAPPDATA%\com.llamalauncher.app\` (Tauri `identifier`, no personal names). Legacy path `com.ilzat.llama-launcher` is still scanned for existing runtime and one-shot settings migration. Backend pick: NVIDIA → CUDA 12.4, other GPU → Vulkan, else CPU. Commands: `runtime_status`, `runtime_check_update`, `runtime_install`, `runtime_cancel_install`, `ensure_default_models_dir`, `wipe_app_data`. When bumping the pin, update both `PINNED_TAG` and digests for **all four** Windows zip assets.
 
 ### Downloads (`hf.rs`)
 
@@ -137,6 +138,7 @@ src-tauri/src/server.rs       # process spawn, readiness, events
 src-tauri/src/runtime.rs      # managed llama.cpp install (PINNED_TAG / digests)
 src-tauri/src/config.rs       # Settings, LaunchDefaults, SETUP_VERSION
 src-tauri/src/diagnostics.rs  # diagnostic_report
+src-tauri/src/data_reset.rs   # wipe_app_data (settings / runtime / models / cache)
 src/lib/api.ts                # IPC boundary (keep in sync with Rust)
 src/lib/server.svelte.ts      # frontend server state
 src/lib/recommended.ts        # curated catalog recommendations

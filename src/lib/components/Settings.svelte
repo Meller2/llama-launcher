@@ -14,6 +14,7 @@
     revealInFolder,
     checkAppUpdate,
     installAppUpdate,
+    wipeAppData,
     type AppUpdateInfo,
     type Settings,
     type RuntimeStatus,
@@ -35,6 +36,15 @@
   let updateChecking = $state(false);
   let updateInstalling = $state(false);
   let updateError = $state<string | null>(null);
+
+  let wipeRuntime = $state(true);
+  let wipeModels = $state(false);
+  let wipeCache = $state(true);
+  let wipeSettings = $state(false);
+  let wipeConfirm = $state(false);
+  let wiping = $state(false);
+  let wipeMsg = $state<string | null>(null);
+  let wipeErr = $state<string | null>(null);
 
   let rt = $state<RuntimeStatus | null>(null);
   let installing = $state(false);
@@ -176,6 +186,47 @@
     } catch (e) {
       updateError = String(e);
       updateInstalling = false;
+    }
+  }
+
+  async function doWipe() {
+    wipeMsg = null;
+    wipeErr = null;
+    if (!wipeRuntime && !wipeModels && !wipeCache && !wipeSettings) {
+      wipeErr = prefs.t("set.data.need_one");
+      return;
+    }
+    if (!wipeConfirm) {
+      wipeErr = prefs.t("set.data.need_confirm");
+      return;
+    }
+    wiping = true;
+    try {
+      const result = await wipeAppData({
+        settings: wipeSettings,
+        runtime: wipeRuntime,
+        models: wipeModels,
+        cache: wipeCache,
+      });
+      draft = structuredClone(result.settings);
+      prefs.apply(result.settings);
+      onchange(result.settings);
+      llamaValid = null;
+      await loadRt();
+      await loadDiag();
+      wipeConfirm = false;
+      if (result.errors.length) {
+        wipeErr = result.errors.join("\n");
+        wipeMsg = prefs.t("set.data.partial", { n: result.removed.length });
+      } else if (result.removed.length === 0) {
+        wipeMsg = prefs.t("set.data.nothing");
+      } else {
+        wipeMsg = prefs.t("set.data.done", { n: result.removed.length });
+      }
+    } catch (e) {
+      wipeErr = String(e);
+    } finally {
+      wiping = false;
     }
   }
 
@@ -394,6 +445,60 @@
     {#if updateError}<div class="bad hint selectable">{updateError}</div>{/if}
   </div>
 
+  <div class="glass block danger-zone">
+    <span class="lbl">{prefs.t("set.data")}</span>
+    <p class="hint muted">{prefs.t("set.data.hint")}</p>
+
+    <label class="wipe-item">
+      <input type="checkbox" bind:checked={wipeRuntime} />
+      <span>
+        <span class="wipe-title">{prefs.t("set.data.runtime")}</span>
+        <span class="wipe-sub muted">{prefs.t("set.data.runtime_hint")}</span>
+      </span>
+    </label>
+    <label class="wipe-item">
+      <input type="checkbox" bind:checked={wipeModels} />
+      <span>
+        <span class="wipe-title">{prefs.t("set.data.models")}</span>
+        <span class="wipe-sub muted">{prefs.t("set.data.models_hint")}</span>
+      </span>
+    </label>
+    <label class="wipe-item">
+      <input type="checkbox" bind:checked={wipeCache} />
+      <span>
+        <span class="wipe-title">{prefs.t("set.data.cache")}</span>
+        <span class="wipe-sub muted">{prefs.t("set.data.cache_hint")}</span>
+      </span>
+    </label>
+    <label class="wipe-item">
+      <input type="checkbox" bind:checked={wipeSettings} />
+      <span>
+        <span class="wipe-title">{prefs.t("set.data.settings")}</span>
+        <span class="wipe-sub muted">{prefs.t("set.data.settings_hint")}</span>
+      </span>
+    </label>
+
+    <label class="chk wipe-confirm">
+      <input type="checkbox" bind:checked={wipeConfirm} />
+      <span>{prefs.t("set.data.confirm")}</span>
+    </label>
+
+    <div class="diag-actions">
+      <button
+        class="btn btn-danger"
+        onclick={doWipe}
+        disabled={wiping || !wipeConfirm}
+      >
+        {wiping ? prefs.t("set.data.wiping") : prefs.t("set.data.wipe")}
+      </button>
+      <button class="btn" onclick={openDataDir} disabled={!diag?.app_dir}>
+        {prefs.t("set.diag.open_dir")}
+      </button>
+    </div>
+    {#if wipeMsg}<p class="hint ok">{wipeMsg}</p>{/if}
+    {#if wipeErr}<div class="bad hint selectable">{wipeErr}</div>{/if}
+  </div>
+
   {#if prefs.showAdvanced}
     <div class="glass block">
       <span class="lbl">{prefs.t("set.launch")}</span>
@@ -550,6 +655,28 @@
     font-family: var(--font-mono); font-size: 12px; color: var(--text-1); line-height: 1.5;
   }
   .diag-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .danger-zone { border-color: rgba(255, 107, 107, 0.22); }
+  .wipe-item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border-radius: var(--radius-m);
+    background: rgba(0,0,0,.18); border: 1px solid var(--border);
+    cursor: pointer; font-size: 13px;
+  }
+  .wipe-item input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--danger); flex-shrink: 0; }
+  .wipe-item > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .wipe-title { color: var(--text-0); font-weight: 500; }
+  .wipe-sub { font-size: 12px; line-height: 1.35; }
+  .wipe-confirm { margin-top: 4px; }
+  .btn-danger {
+    border-color: rgba(255, 107, 107, 0.45);
+    background: rgba(255, 107, 107, 0.12);
+    color: #ffb4b4;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: rgba(255, 107, 107, 0.22);
+    border-color: rgba(255, 107, 107, 0.65);
+  }
+  .btn-danger:disabled { opacity: 0.45; }
   .save-row { display: flex; align-items: center; gap: 14px; padding-bottom: 8px; }
   .saved-msg { color: var(--ok); font-size: 13px; }
 </style>
