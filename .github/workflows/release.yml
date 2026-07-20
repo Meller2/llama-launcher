@@ -44,8 +44,7 @@ jobs:
           $assets = gh release view $env:GITHUB_REF_NAME --json assets --jq '.assets[].name'
           $required = @(
             "llama-launcher_${{ github.ref_name }}_x64-setup.exe" -replace '_v', '_'
-            "llama-launcher_${{ github.ref_name }}_x64-setup.nsis.zip" -replace '_v', '_'
-            "llama-launcher_${{ github.ref_name }}_x64-setup.nsis.zip.sig" -replace '_v', '_'
+            "llama-launcher_${{ github.ref_name }}_x64-setup.exe.sig" -replace '_v', '_'
             "latest.json"
           )
           $missing = $required | Where-Object { $_ -notin $assets }
