@@ -40,7 +40,7 @@ tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # SHA-256 проверка скачанных zip runtime (pinned release).
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Детект железа (Фаза 3): VRAM через DXGI, RAM через GlobalMemoryStatusEx.
 [target.'cfg(windows)'.dependencies]
