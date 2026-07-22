@@ -31,7 +31,7 @@ serde_json = "1"
 
 # Каталог Hugging Face (Фаза 4): HTTP-поиск + стриминг-скачивание GGUF.
 # default-tls на Windows = schannel (без OpenSSL); json — для разбора API-ответов.
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 # Асинхронная запись файла при скачивании (не блокируем исполнитель Tokio).
 tokio = { version = "1", features = ["fs", "io-util", "rt-multi-thread"] }
