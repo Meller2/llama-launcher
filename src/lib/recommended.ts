@@ -1,37 +1,35 @@
-// Curated «рекомендуемые модели» — не HF trending, а ручной список (обновлять раз в месяц).
-// GGUF: unsloth, конкретные файлы проверены на HF (2026-07).
-// Смысл: новичок выбирает «зачем», а не «какой Qwen».
+// Curated recommended models — manual list (refresh periodically).
+// GGUF: unsloth; files verified on HF. Novice picks by purpose, not by repo name.
 
 export type RecCategory = "light" | "chat" | "smart" | "code" | "power";
 
 export interface RecommendedModel {
   id: string;
-  /** i18n ключ заголовка */
+  /** i18n title key */
   titleKey: string;
-  /** i18n ключ короткого описания */
+  /** i18n short description key */
   blurbKey: string;
   category: RecCategory;
-  /** Человекочитаемая линейка: «Qwen 3.6», «Gemma 4» */
+  /** Display family: «Qwen 3.6», «Gemma 4» */
   family: string;
-  /** Ярлык размера: «27B», «12B» */
+  /** Size label: «27B», «12B» */
   sizeLabel: string;
   hfRepo: string;
-  /** Конкретный .gguf в корне репо */
+  /** Concrete .gguf at repo root */
   file: string;
-  /** Размер файла (байт), для UI и проверки места */
+  /** File size (bytes) for UI and disk checks */
   fileBytes: number;
-  /** Оценка VRAM для комфортного запуска Q4 (байт) */
+  /** Comfortable VRAM estimate for this quant (bytes) */
   vramHintBytes: number;
-  /** Показать бейдж «Лучший выбор» */
+  /** Editorial highlight (still re-ranked by hardware fit) */
   featured?: boolean;
 }
 
 const GB = 1024 ** 3;
 
 /**
- * Актуальный срез середины 2026:
- * Qwen 3.6 + Gemma 4 + лёгкие Phi/Qwen3.5.
- * Не тащим Llama 3 / Qwen 2.5 / Gemma 3 как «рекомендуем».
+ * Mid-2026 slice: Qwen 3.6 + Gemma 4 + light Phi/Qwen3.5.
+ * Avoid promoting outdated lines as primary picks.
  */
 export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
@@ -130,22 +128,147 @@ export const REC_CATEGORIES: { id: RecCategory | "all"; labelKey: string }[] = [
   { id: "power", labelKey: "rec.cat.power" },
 ];
 
+/** How well a model fits available memory (GPU VRAM or system RAM). */
 export type FitLevel = "ok" | "tight" | "no" | "unknown";
 
-/** Сравнение с VRAM GPU (или RAM, если GPU нет). */
+export type FitResource = "vram" | "ram" | "unknown";
+
+export interface FitInfo {
+  level: FitLevel;
+  /** Which pool the estimate used. */
+  resource: FitResource;
+  /** Usable budget after OS reserve (bytes), if known. */
+  budgetBytes: number | null;
+  /** Estimated need (bytes). */
+  needBytes: number;
+}
+
+/** Leave headroom for OS / desktop / browser when running CPU-only. */
+const RAM_RESERVE = 4 * GB;
+/** Leave headroom for desktop compositor / other GPU clients. */
+const VRAM_RESERVE = Math.round(0.75 * GB);
+
+/**
+ * Usable memory budget for model weights + modest context.
+ * Prefer GPU VRAM; fall back to system RAM when no discrete GPU.
+ */
+export function memoryBudget(
+  vramBytes: number | null,
+  ramBytes: number | null,
+): { budget: number; resource: FitResource } | null {
+  if (vramBytes != null && vramBytes > 512 * 1024 * 1024) {
+    return {
+      budget: Math.max(0, vramBytes - VRAM_RESERVE),
+      resource: "vram",
+    };
+  }
+  if (ramBytes != null && ramBytes > 0) {
+    return {
+      budget: Math.max(0, ramBytes - RAM_RESERVE),
+      resource: "ram",
+    };
+  }
+  return null;
+}
+
+/** Need ≈ declared VRAM hint (already includes comfort margin for that quant). */
+export function fitForNeed(
+  needBytes: number,
+  vramBytes: number | null,
+  ramBytes: number | null,
+): FitInfo {
+  const pool = memoryBudget(vramBytes, ramBytes);
+  if (!pool) {
+    return { level: "unknown", resource: "unknown", budgetBytes: null, needBytes };
+  }
+  const { budget, resource } = pool;
+  if (budget >= needBytes) {
+    return { level: "ok", resource, budgetBytes: budget, needBytes };
+  }
+  // Tight: at least ~70% of need — may work with lower ctx / partial offload.
+  if (budget >= needBytes * 0.7) {
+    return { level: "tight", resource, budgetBytes: budget, needBytes };
+  }
+  return { level: "no", resource, budgetBytes: budget, needBytes };
+}
+
+export function fitInfo(
+  model: RecommendedModel,
+  vramBytes: number | null,
+  ramBytes: number | null,
+): FitInfo {
+  return fitForNeed(model.vramHintBytes, vramBytes, ramBytes);
+}
+
+/** @deprecated use fitInfo — kept for call-site simplicity */
 export function fitLevel(
   model: RecommendedModel,
   vramBytes: number | null,
   ramBytes: number | null,
 ): FitLevel {
-  const budget =
-    vramBytes && vramBytes > 0
-      ? vramBytes
-      : ramBytes && ramBytes > 0
-        ? Math.max(0, ramBytes - 4 * GB) // ОС + UI
-        : null;
-  if (budget == null) return "unknown";
-  if (budget >= model.vramHintBytes) return "ok";
-  if (budget >= model.vramHintBytes * 0.7) return "tight";
-  return "no";
+  return fitInfo(model, vramBytes, ramBytes).level;
+}
+
+/**
+ * Estimate fit for an arbitrary GGUF by file size.
+ * Weights ≈ file size; add overhead for KV / runtime (min 1.5 GiB or 15%).
+ */
+export function fitFromFileBytes(
+  fileBytes: number,
+  vramBytes: number | null,
+  ramBytes: number | null,
+): FitInfo {
+  if (!fileBytes || fileBytes <= 0) {
+    return { level: "unknown", resource: "unknown", budgetBytes: null, needBytes: 0 };
+  }
+  const overhead = Math.max(1.5 * GB, fileBytes * 0.15);
+  return fitForNeed(fileBytes + overhead, vramBytes, ramBytes);
+}
+
+const FIT_RANK: Record<FitLevel, number> = {
+  ok: 0,
+  tight: 1,
+  unknown: 2,
+  no: 3,
+};
+
+export function fitRank(level: FitLevel): number {
+  return FIT_RANK[level];
+}
+
+/** Sort: better fit first, then editorial featured, then smaller need. */
+export function sortByFit(
+  models: RecommendedModel[],
+  vramBytes: number | null,
+  ramBytes: number | null,
+): RecommendedModel[] {
+  return [...models].sort((a, b) => {
+    const fa = fitInfo(a, vramBytes, ramBytes);
+    const fb = fitInfo(b, vramBytes, ramBytes);
+    const dr = fitRank(fa.level) - fitRank(fb.level);
+    if (dr !== 0) return dr;
+    if (!!b.featured !== !!a.featured) return a.featured ? -1 : 1;
+    return a.vramHintBytes - b.vramHintBytes;
+  });
+}
+
+/**
+ * Best starting pick for this machine: highest comfort among "ok",
+ * else best "tight". Prefers editorial featured when fits are equal.
+ */
+export function bestForHardware(
+  vramBytes: number | null,
+  ramBytes: number | null,
+  models: RecommendedModel[] = RECOMMENDED_MODELS,
+): RecommendedModel | null {
+  const sorted = sortByFit(models, vramBytes, ramBytes);
+  const ok = sorted.filter((m) => fitInfo(m, vramBytes, ramBytes).level === "ok");
+  if (ok.length) {
+    // Prefer featured among ok; else largest that still fits (more capable).
+    const featured = ok.find((m) => m.featured);
+    if (featured) return featured;
+    return ok[ok.length - 1];
+  }
+  const tight = sorted.find((m) => fitInfo(m, vramBytes, ramBytes).level === "tight");
+  return tight ?? sorted[0] ?? null;
 }

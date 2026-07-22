@@ -18,10 +18,14 @@
   import {
     RECOMMENDED_MODELS,
     REC_CATEGORIES,
-    fitLevel,
+    fitInfo,
+    fitFromFileBytes,
+    sortByFit,
+    bestForHardware,
     type RecCategory,
     type RecommendedModel,
     type FitLevel,
+    type FitInfo,
   } from "$lib/recommended";
 
   let { settings }: { settings: Settings } = $props();
@@ -48,6 +52,8 @@
 
   let hw = $state<HardwareInfo | null>(null);
   let recFilter = $state<RecCategory | "all">("all");
+  /** Only show models that fit (ok / tight). */
+  let onlyFits = $state(false);
 
   detectHardware()
     .then((h) => (hw = h))
@@ -72,18 +78,27 @@
     return () => unlisten?.();
   });
 
-  const filteredRecs = $derived(
-    recFilter === "all"
-      ? RECOMMENDED_MODELS
-      : RECOMMENDED_MODELS.filter((m) => m.category === recFilter),
-  );
+  const vram = $derived(hw?.gpu?.vram_bytes ?? null);
+  const ram = $derived(hw?.total_ram_bytes ?? null);
 
-  function fitOf(m: RecommendedModel): FitLevel {
-    return fitLevel(
-      m,
-      hw?.gpu?.vram_bytes ?? null,
-      hw?.total_ram_bytes ?? null,
-    );
+  const filteredRecs = $derived.by(() => {
+    let list =
+      recFilter === "all"
+        ? RECOMMENDED_MODELS
+        : RECOMMENDED_MODELS.filter((m) => m.category === recFilter);
+    if (onlyFits) {
+      list = list.filter((m) => {
+        const lvl = fitInfo(m, vram, ram).level;
+        return lvl === "ok" || lvl === "tight";
+      });
+    }
+    return sortByFit(list, vram, ram);
+  });
+
+  const pick = $derived(bestForHardware(vram, ram));
+
+  function fitOf(m: RecommendedModel): FitInfo {
+    return fitInfo(m, vram, ram);
   }
 
   function fitLabel(f: FitLevel): string {
@@ -91,6 +106,18 @@
     if (f === "tight") return prefs.t("rec.fit.tight");
     if (f === "no") return prefs.t("rec.fit.no");
     return prefs.t("rec.fit.unknown");
+  }
+
+  function hwSummary(): string {
+    if (!hw) return prefs.t("rec.hw.loading");
+    if (hw.gpu) {
+      return prefs.t("rec.hw.gpu", {
+        name: hw.gpu.name,
+        vram: formatBytes(hw.gpu.vram_bytes),
+        ram: formatBytes(hw.total_ram_bytes),
+      });
+    }
+    return prefs.t("rec.hw.cpu", { ram: formatBytes(hw.total_ram_bytes) });
   }
 
   async function runSearch() {
@@ -198,6 +225,10 @@
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
     return String(n);
   }
+
+  function fileFit(f: HfFile): FitInfo {
+    return fitFromFileBytes(f.size, vram, ram);
+  }
 </script>
 
 <div class="page">
@@ -228,7 +259,7 @@
   {/if}
 
   <div class="scroll">
-    <!-- ── Рекомендации ─────────────────────────────────────────────── -->
+    <!-- ── Recommended ──────────────────────────────────────────────── -->
     <section class="rec-block">
       <div class="rec-head">
         <div>
@@ -238,7 +269,24 @@
         <span class="rec-meta mono">{prefs.t("rec.updated")}</span>
       </div>
 
+      <div class="hw-bar glass" title={hwSummary()}>
+        <span class="hw-ic" aria-hidden="true">◈</span>
+        <span class="hw-text">{hwSummary()}</span>
+        {#if pick && hw}
+          <span class="hw-pick mono">
+            {prefs.t("rec.hw.pick", { name: prefs.t(pick.titleKey) })}
+          </span>
+        {/if}
+      </div>
+
       <div class="chips">
+        <button
+          type="button"
+          class="chip fit-chip {onlyFits ? 'on' : ''}"
+          onclick={() => (onlyFits = !onlyFits)}
+        >
+          {prefs.t("rec.filter.fits")}
+        </button>
         {#each REC_CATEGORIES as c}
           <button
             type="button"
@@ -250,43 +298,54 @@
         {/each}
       </div>
 
-      <div class="rec-grid">
-        {#each filteredRecs as m (m.id)}
-          {@const fit = fitOf(m)}
-          <article class="rec-card {m.featured ? 'featured' : ''}">
-            <div class="rec-top">
-              <span class="family">{m.family}</span>
-              {#if m.featured}
-                <span class="star">{prefs.t("rec.featured")}</span>
-              {/if}
-            </div>
-            <h4 class="rec-name">{prefs.t(m.titleKey)}</h4>
-            <p class="rec-blurb">{prefs.t(m.blurbKey)}</p>
-            <div class="rec-badges">
-              <span class="badge">{m.sizeLabel}</span>
-              <span class="badge mono">{formatBytes(m.fileBytes)}</span>
-              <span class="badge fit {fit}">{fitLabel(fit)}</span>
-            </div>
-            <div class="rec-foot">
-              <span class="vram muted"
-                >{prefs.t("rec.vram", { n: formatBytes(m.vramHintBytes) })}</span
-              >
-              <button
-                type="button"
-                class="btn btn-primary rec-dl"
-                disabled={busy || !destDir}
-                onclick={() => downloadRecommended(m)}
-              >
-                <Icon name="catalog" size={14} />
-                {busy ? prefs.t("rec.downloading") : prefs.t("rec.download")}
-              </button>
-            </div>
-          </article>
-        {/each}
-      </div>
+      {#if filteredRecs.length === 0}
+        <p class="muted center rec-empty">{prefs.t("rec.filter.empty")}</p>
+      {:else}
+        <div class="rec-grid">
+          {#each filteredRecs as m (m.id)}
+            {@const fit = fitOf(m)}
+            {@const isPick = pick?.id === m.id}
+            <article
+              class="rec-card {m.featured ? 'featured' : ''} {isPick ? 'is-pick' : ''} fit-{fit.level}"
+            >
+              <div class="rec-top">
+                <span class="family">{m.family}</span>
+                <div class="rec-tags">
+                  {#if isPick}
+                    <span class="star">{prefs.t("rec.for_you")}</span>
+                  {:else if m.featured}
+                    <span class="star soft">{prefs.t("rec.featured")}</span>
+                  {/if}
+                </div>
+              </div>
+              <h4 class="rec-name">{prefs.t(m.titleKey)}</h4>
+              <p class="rec-blurb">{prefs.t(m.blurbKey)}</p>
+              <div class="rec-badges">
+                <span class="badge">{m.sizeLabel}</span>
+                <span class="badge mono">{formatBytes(m.fileBytes)}</span>
+                <span class="badge fit {fit.level}">{fitLabel(fit.level)}</span>
+              </div>
+              <div class="rec-foot">
+                <span class="vram muted">
+                  {prefs.t("rec.vram", { n: formatBytes(m.vramHintBytes) })}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-primary rec-dl"
+                  disabled={busy || !destDir}
+                  onclick={() => downloadRecommended(m)}
+                >
+                  <Icon name="catalog" size={14} />
+                  {busy ? prefs.t("rec.downloading") : prefs.t("rec.download")}
+                </button>
+              </div>
+            </article>
+          {/each}
+        </div>
+      {/if}
     </section>
 
-    <!-- ── Поиск HF ─────────────────────────────────────────────────── -->
+    <!-- ── HF search ─────────────────────────────────────────────────── -->
     <section class="search-block">
       <h3 class="sec-title">{prefs.t("cat.search_section")}</h3>
       <div class="searchbar">
@@ -337,11 +396,17 @@
                     <div class="bad small pad">{filesError}</div>
                   {:else if files[m.id]?.length}
                     {#each files[m.id] as f (f.path)}
+                      {@const ff = fileFit(f)}
                       <div class="file">
                         <span class="file-name" title={f.path}>{f.path}</span>
-                        <span class="file-size"
-                          >{f.size > 0 ? formatBytes(f.size) : "—"}</span
-                        >
+                        <span class="file-size">
+                          {f.size > 0 ? formatBytes(f.size) : "—"}
+                        </span>
+                        {#if f.size > 0}
+                          <span class="badge fit tiny {ff.level}"
+                            >{fitLabel(ff.level)}</span
+                          >
+                        {/if}
                         <button
                           class="btn dl"
                           disabled={busy || !destDir}
@@ -420,38 +485,50 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-2);
+    min-width: 200px;
   }
   .sel {
-    width: 260px;
-    padding: 7px 10px;
+    font-size: 12px;
+    max-width: 280px;
+  }
+  .note {
+    padding: 10px 14px;
     font-size: 13px;
   }
-
+  .note.ok {
+    color: var(--ok);
+  }
+  .note.bad {
+    color: var(--danger);
+  }
   .scroll {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding-right: 6px;
     display: flex;
     flex-direction: column;
     gap: 28px;
+    padding-right: 4px;
   }
 
   /* ── Recommended ── */
+  .rec-block {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
   .rec-head {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
     gap: 12px;
-    margin-bottom: 12px;
   }
   .rec-title {
     margin: 0;
     font-size: 15px;
     font-weight: 600;
-    letter-spacing: -0.02em;
   }
   .rec-sub {
     margin: 4px 0 0;
@@ -461,68 +538,91 @@
   .rec-meta {
     font-size: 11px;
     color: var(--text-2);
-    flex: none;
+    white-space: nowrap;
   }
-
+  .hw-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+  }
+  .hw-ic {
+    color: var(--accent);
+    font-size: 12px;
+  }
+  .hw-text {
+    color: var(--text-1);
+    flex: 1;
+    min-width: 160px;
+  }
+  .hw-pick {
+    font-size: 11.5px;
+    color: var(--accent-hover);
+  }
   .chips {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-bottom: 14px;
   }
   .chip {
     padding: 6px 12px;
     border-radius: 999px;
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--text-1);
-    background: var(--surface);
     border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 12px;
+    color: var(--text-1);
     transition:
-      background 0.12s,
       border-color 0.12s,
+      background 0.12s,
       color 0.12s;
   }
   .chip:hover {
-    border-color: var(--border-strong);
+    background: var(--surface-hover);
     color: var(--text-0);
   }
   .chip.on {
-    color: var(--accent-hover);
+    border-color: var(--accent);
     background: var(--accent-soft);
-    border-color: var(--accent-line);
+    color: var(--accent-hover);
   }
-
+  .chip.fit-chip.on {
+    border-color: rgba(75, 208, 127, 0.45);
+    background: rgba(75, 208, 127, 0.12);
+    color: var(--ok);
+  }
+  .rec-empty {
+    margin: 8px 0;
+    font-size: 13px;
+  }
   .rec-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 12px;
   }
   .rec-card {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    padding: 14px 15px;
-    border-radius: var(--radius-l);
-    background: var(--surface);
+    padding: 14px 16px;
+    border-radius: var(--radius-m);
     border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.18);
     transition:
-      border-color 0.14s,
-      box-shadow 0.14s,
-      background 0.14s;
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
-  .rec-card:hover {
-    border-color: var(--border-strong);
-    background: var(--surface-hover);
+  .rec-card.featured,
+  .rec-card.is-pick {
+    border-color: rgba(var(--accent-rgb, 120, 160, 255), 0.35);
   }
-  .rec-card.featured {
-    border-color: var(--accent-line);
-    background: linear-gradient(
-      165deg,
-      rgba(255, 154, 61, 0.1),
-      rgba(255, 154, 61, 0.03)
-    );
-    box-shadow: 0 0 0 1px rgba(255, 154, 61, 0.08);
+  .rec-card.is-pick {
+    box-shadow: 0 0 0 1px rgba(75, 208, 127, 0.15);
+    border-color: rgba(75, 208, 127, 0.4);
+  }
+  .rec-card.fit-no {
+    opacity: 0.82;
   }
   .rec-top {
     display: flex;
@@ -537,6 +637,10 @@
     text-transform: uppercase;
     color: var(--accent);
   }
+  .rec-tags {
+    display: flex;
+    gap: 6px;
+  }
   .star {
     font-size: 10.5px;
     font-weight: 600;
@@ -544,6 +648,11 @@
     border-radius: 999px;
     color: var(--accent-ink);
     background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+  }
+  .star.soft {
+    color: var(--text-1);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
   }
   .rec-name {
     margin: 0;
@@ -573,6 +682,11 @@
     background: rgba(0, 0, 0, 0.22);
     color: var(--text-1);
   }
+  .badge.tiny {
+    font-size: 10px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
   .badge.fit.ok {
     color: var(--ok);
     border-color: rgba(75, 208, 127, 0.35);
@@ -587,6 +701,9 @@
     color: var(--danger);
     border-color: var(--danger-line);
     background: var(--danger-soft);
+  }
+  .badge.fit.unknown {
+    color: var(--text-2);
   }
   .rec-foot {
     display: flex;
@@ -627,32 +744,38 @@
     color: var(--text-2);
     pointer-events: none;
     display: grid;
+    place-items: center;
   }
   .search-wrap .input {
-    width: 100%;
     padding-left: 34px;
+    width: 100%;
   }
-
+  .center {
+    text-align: center;
+    padding: 20px 12px;
+  }
+  .muted {
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .dim {
+    margin: 0;
+    color: var(--text-2);
+    font-size: 13px;
+  }
   .list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
-  .more {
-    display: flex;
-    justify-content: center;
-    padding: 14px 0 4px;
-  }
-
   .repo {
     border: 1px solid var(--border);
     border-radius: var(--radius-m);
-    background: var(--surface);
+    background: rgba(0, 0, 0, 0.15);
     overflow: hidden;
-    transition: border-color 0.14s;
   }
   .repo.open {
-    border-color: var(--accent-line);
+    border-color: var(--border-strong, var(--border));
   }
   .repo-head {
     width: 100%;
@@ -660,120 +783,87 @@
     justify-content: space-between;
     align-items: center;
     gap: 12px;
-    padding: 12px 15px;
+    padding: 11px 14px;
+    background: none;
+    border: none;
+    color: inherit;
     text-align: left;
-    transition: background 0.14s;
+    cursor: pointer;
   }
   .repo-head:hover {
     background: var(--surface-hover);
   }
   .repo-id {
-    font-weight: 500;
-    font-size: 13.5px;
-    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .repo-stats {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
     gap: 12px;
-    flex: none;
+    font-size: 11.5px;
     color: var(--text-2);
-    font-size: 12px;
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
+    flex-shrink: 0;
   }
   .chev {
-    font-size: 9px;
-    color: var(--accent);
+    color: var(--text-2);
   }
-
   .files {
     border-top: 1px solid var(--border);
-    background: rgba(0, 0, 0, 0.18);
     display: flex;
     flex-direction: column;
   }
   .file {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr auto auto auto;
     align-items: center;
-    gap: 12px;
-    padding: 9px 15px;
-    font-size: 13px;
+    gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   }
-  .file + .file {
-    border-top: 1px solid var(--border);
+  .file:last-child {
+    border-bottom: none;
   }
   .file-name {
-    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--text-1);
-    font-family: var(--font-mono);
-    font-size: 12.5px;
-    letter-spacing: -0.02em;
+    white-space: nowrap;
   }
   .file-size {
-    color: var(--text-2);
     font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-    flex: none;
+    font-size: 11.5px;
+    color: var(--text-2);
+    white-space: nowrap;
   }
   .dl {
-    padding: 6px 12px;
-    font-size: 12.5px;
+    padding: 5px 10px;
+    font-size: 12px;
   }
   .pad {
-    padding: 11px 15px;
-  }
-
-  .note {
-    padding: 12px 16px;
-    font-size: 13px;
-  }
-  .ok {
-    color: var(--ok);
-  }
-  .bad {
-    color: var(--danger);
+    padding: 12px 14px;
   }
   .small {
     font-size: 12.5px;
   }
-  .muted {
-    color: var(--text-2);
-  }
-  .center {
-    text-align: center;
-    padding: 20px 0;
-  }
-  .hint {
-    color: var(--text-1);
+  .more {
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 16px 0 8px;
+    justify-content: center;
+    margin-top: 12px;
   }
-  .hint p {
-    margin: 0;
-  }
-  .hint .dim {
-    color: var(--text-2);
-    font-size: 12.5px;
-    max-width: 380px;
-    text-align: center;
+  .bad {
+    color: var(--danger);
   }
 
+  /* ── Download bar ── */
   .dlbar {
-    padding: 13px 16px;
+    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 8px;
   }
   .dl-top {
     display: flex;
@@ -781,56 +871,51 @@
     gap: 12px;
   }
   .dl-file {
-    font-weight: 500;
-    font-size: 13px;
-    white-space: nowrap;
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
     overflow: hidden;
     text-overflow: ellipsis;
-    flex: 1;
+    white-space: nowrap;
   }
   .dl-num {
-    color: var(--text-1);
-    font-size: 12px;
     font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
-    flex: none;
+    font-size: 12px;
+    color: var(--text-2);
+    white-space: nowrap;
   }
   .dl-cancel {
-    padding: 6px 12px;
-    font-size: 12.5px;
+    padding: 5px 10px;
+    font-size: 12px;
   }
   .bar {
-    height: 7px;
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.35);
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.08);
     overflow: hidden;
   }
   .bar-fill {
     height: 100%;
-    border-radius: 4px;
-    background: linear-gradient(90deg, var(--accent-press), var(--accent-hover));
-    box-shadow: 0 0 10px var(--accent-glow);
+    background: var(--accent);
+    border-radius: 2px;
     transition: width 0.2s ease;
   }
   .bar-fill.indet {
-    animation: indet 1.1s ease-in-out infinite;
+    width: 40% !important;
+    animation: indet 1.2s ease-in-out infinite;
   }
   @keyframes indet {
     0% {
-      opacity: 0.5;
-    }
-    50% {
-      opacity: 1;
+      transform: translateX(-100%);
     }
     100% {
-      opacity: 0.5;
+      transform: translateX(350%);
     }
   }
-
   .mono {
     font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
+  }
+  .selectable {
+    user-select: text;
   }
 </style>

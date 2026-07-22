@@ -32,3 +32,8 @@ vite.config.ts.timestamp-*
 /photo*.jpg
 /photo*.png
 
+
+# Local product planning (not for GitHub)
+/goal.md
+/IDEA.md
+
