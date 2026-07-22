@@ -18,6 +18,11 @@
   import { prefs } from "$lib/prefs.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import ContextMenu, { type MenuItem } from "$lib/components/ContextMenu.svelte";
+  import {
+    LAUNCH_PROFILES,
+    applyLaunchProfile,
+    type LaunchProfileId,
+  } from "$lib/profiles";
 
   let {
     settings,
@@ -41,6 +46,8 @@
   let auto = $state<AutoConfig | null>(null);
   let autoLoading = $state(false);
   let useAuto = $state(true);
+  /** Launch preset on top of auto-config (or settings defaults). */
+  let profile = $state<LaunchProfileId>("balanced");
   let selectGen = 0;
   $effect(() => {
     if (!prefs.canDisableAuto) useAuto = true;
@@ -145,22 +152,45 @@
   const fitKind = $derived.by((): "full" | "partial" | "cpu" | "wait" | null => {
     if (!selectedModel) return null;
     if (autoLoading) return "wait";
-    if (!auto) return null;
-    if (auto.ngl === 0) return "cpu";
-    if (auto.full_offload) return "full";
-    return "partial";
+    const p = resolvedParams;
+    if (!p) return null;
+    if (p.ngl === 0) return "cpu";
+    if (auto?.full_offload && profile !== "cpu") return "full";
+    if (p.ngl > 0) return "partial";
+    return "cpu";
   });
+
+  /** Effective launch knobs for the current profile / auto / defaults. */
+  const resolvedParams = $derived.by(() => {
+    if (!selectedModel) return null;
+    const autoOn = !prefs.canDisableAuto || useAuto;
+    if (!autoOn) {
+      return {
+        ctx: settings.defaults.ctx,
+        kv_quant: settings.defaults.kv_quant,
+        threads: settings.defaults.threads,
+        ngl: settings.defaults.ngl,
+      };
+    }
+    if (autoLoading) return null;
+    return applyLaunchProfile(profile, auto, settings.defaults);
+  });
+
+  const activeProfileMeta = $derived(
+    LAUNCH_PROFILES.find((p) => p.id === profile) ?? LAUNCH_PROFILES[0],
+  );
 
   async function launch(m: ModelInfo) {
     if (!settings.llama_dir || launchDisabled) return;
-    const autoOn = !prefs.canDisableAuto || useAuto;
+    const p = resolvedParams;
+    if (!p) return;
     const cfg: LaunchConfig = {
       llama_dir: settings.llama_dir,
       model_path: m.path,
-      ctx: autoOn && auto ? auto.ctx : settings.defaults.ctx,
-      kv_quant: autoOn && auto ? auto.kv_quant : settings.defaults.kv_quant,
-      threads: autoOn && auto ? auto.threads : settings.defaults.threads,
-      ngl: autoOn && auto ? auto.ngl : settings.defaults.ngl,
+      ctx: p.ctx,
+      kv_quant: p.kv_quant,
+      threads: p.threads,
+      ngl: p.ngl,
       port: settings.defaults.port,
       tools: settings.defaults.tools,
     };
@@ -444,7 +474,7 @@
 
           <div class="reco">
             <div class="reco-top">
-              <span class="reco-title">{prefs.t("models.auto")}</span>
+              <span class="reco-title">{prefs.t("prof.title")}</span>
               {#if prefs.canDisableAuto}
                 <label class="toggle">
                   <input type="checkbox" bind:checked={useAuto} />
@@ -452,41 +482,70 @@
                 </label>
               {/if}
             </div>
+
+            {#if !prefs.canDisableAuto || useAuto}
+              <div class="prof-chips" role="group" aria-label={prefs.t("prof.title")}>
+                {#each LAUNCH_PROFILES as p}
+                  <button
+                    type="button"
+                    class="prof-chip {profile === p.id ? 'on' : ''}"
+                    onclick={() => (profile = p.id)}
+                    title={prefs.t(p.descKey)}
+                  >
+                    {prefs.t(p.labelKey)}
+                  </button>
+                {/each}
+              </div>
+              <p class="prof-desc muted">{prefs.t(activeProfileMeta.descKey)}</p>
+            {:else}
+              <p class="prof-desc muted">{prefs.t("prof.manual")}</p>
+            {/if}
+
             {#if autoLoading}
               <span class="muted small">{prefs.t("models.auto.loading")}</span>
-            {:else if auto}
+            {:else if resolvedParams}
               {#if prefs.showAutoDetails}
                 <div class="reco-grid">
                   <span class="k">{prefs.t("models.auto.ngl")}</span>
-                  <span class="v"
-                    >{auto.full_offload
-                      ? prefs.t("models.auto.ngl_all")
-                      : auto.ngl}</span
-                  >
+                  <span class="v">
+                    {resolvedParams.ngl === 0
+                      ? "0"
+                      : auto?.full_offload &&
+                          profile !== "cpu" &&
+                          resolvedParams.ngl >= (auto?.ngl ?? 0)
+                        ? prefs.t("models.auto.ngl_all")
+                        : resolvedParams.ngl}
+                  </span>
                   <span class="k">{prefs.t("models.auto.ctx")}</span>
-                  <span class="v">{auto.ctx.toLocaleString()}</span>
+                  <span class="v">{resolvedParams.ctx.toLocaleString()}</span>
                   {#if prefs.showAdvanced}
                     <span class="k">{prefs.t("models.auto.kv")}</span>
-                    <span class="v">{auto.kv_quant}</span>
+                    <span class="v">{resolvedParams.kv_quant}</span>
                     <span class="k">{prefs.t("models.auto.threads")}</span>
-                    <span class="v">{auto.threads}</span>
+                    <span class="v">{resolvedParams.threads}</span>
                   {/if}
-                  {#if auto.est_vram_bytes > 0}
+                  {#if auto && auto.est_vram_bytes > 0 && profile === "balanced"}
                     <span class="k">{prefs.t("models.auto.vram")}</span>
                     <span class="v">{formatBytes(auto.est_vram_bytes)}</span>
                   {/if}
                 </div>
-                <p class="reco-why {auto.full_offload ? 'ok' : 'warn'}">
-                  {auto.rationale}
-                </p>
+                {#if auto && profile === "balanced"}
+                  <p class="reco-why {auto.full_offload ? 'ok' : 'warn'}">
+                    {auto.rationale}
+                  </p>
+                {/if}
               {:else}
-                <p class="reco-why {auto.full_offload ? 'ok' : 'warn'}">
-                  {auto.full_offload
-                    ? prefs.t("models.auto.simple_ok")
-                    : prefs.t("models.auto.simple_warn")}
+                <p class="reco-why {fitKind === 'full' ? 'ok' : 'warn'}">
+                  {#if fitKind === "full"}
+                    {prefs.t("models.auto.simple_ok")}
+                  {:else if fitKind === "cpu"}
+                    {prefs.t("prof.simple_cpu")}
+                  {:else}
+                    {prefs.t("models.auto.simple_warn")}
+                  {/if}
                 </p>
               {/if}
-            {:else}
+            {:else if !autoLoading}
               <span class="muted small">{prefs.t("models.auto.fail")}</span>
             {/if}
           </div>
@@ -820,6 +879,37 @@
   }
   .toggle input {
     accent-color: var(--accent);
+  }
+  .prof-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .prof-chip {
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 12px;
+    color: var(--text-1);
+    transition:
+      border-color 0.12s,
+      background 0.12s,
+      color 0.12s;
+  }
+  .prof-chip:hover {
+    background: var(--surface-hover);
+    color: var(--text-0);
+  }
+  .prof-chip.on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .prof-desc {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
   }
   .reco-grid {
     display: grid;
